@@ -1,0 +1,6 @@
+@CWFlgma.Gateway_HostAddress = http://localhost:5219
+
+GET {{CWFlgma.Gateway_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

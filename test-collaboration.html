@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>CWFlgma 协作测试</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        input, button { padding: 8px; margin: 5px; }
+        #log { border: 1px solid #ccc; padding: 10px; height: 400px; overflow-y: auto; background: #f5f5f5; }
+        .log-entry { margin: 5px 0; padding: 5px; border-bottom: 1px solid #eee; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .connected { background: #d4edda; color: #155724; }
+        .disconnected { background: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>CWFlgma 协作测试</h1>
+        
+        <div id="status" class="status disconnected">未连接</div>
+        
+        <div>
+            <input type="text" id="hubPort" placeholder="Hub端口" value="63912">
+            <input type="text" id="documentId" placeholder="文档ID" value="doc-1">
+            <input type="number" id="userId" placeholder="用户ID" value="123">
+            <input type="text" id="username" placeholder="用户名" value="User1">
+            <button onclick="connect()">连接并加入</button>
+            <button onclick="disconnect()">断开</button>
+        </div>
+        
+        <div style="margin-top: 20px;">
+            <button onclick="sendCursor()">发送光标位置</button>
+            <button onclick="sendSelection()">发送选中状态</button>
+            <button onclick="requestLock()">请求锁定图层</button>
+            <button onclick="releaseLock()">释放锁定</button>
+            <button onclick="sendOperation()">发送操作</button>
+        </div>
+        
+        <h3>日志</h3>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        let connection = null;
+        const logDiv = document.getElementById('log');
+        const statusDiv = document.getElementById('status');
+
+        function addLog(msg, type = 'info') {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong> - ${msg}`;
+            logDiv.insertBefore(entry, logDiv.firstChild);
+        }
+
+        function updateStatus(connected) {
+            if (connected) {
+                statusDiv.className = 'status connected';
+                statusDiv.textContent = '已连接';
+            } else {
+                statusDiv.className = 'status disconnected';
+                statusDiv.textContent = '未连接';
+            }
+        }
+
+        async function connect() {
+            const documentId = document.getElementById('documentId').value;
+            const userId = parseInt(document.getElementById('userId').value);
+            const username = document.getElementById('username').value;
+
+            // 使用用户输入的端口，强制使用 127.0.0.1
+            const port = document.getElementById('hubPort').value;
+            const hubUrl = `http://127.0.0.1:${port}/hubs/collaboration`;
+            
+            addLog(`正在连接到 ${hubUrl}...`);
+
+            connection = new signalR.HubConnectionBuilder()
+                .withUrl(hubUrl)
+                .withAutomaticReconnect()
+                .build();
+
+            // 监听事件
+            connection.on("DocumentState", (state) => {
+                addLog(`📄 收到文档状态，当前 ${Object.keys(state.users).length} 人在线`);
+            });
+
+            connection.on("UserJoined", (user) => {
+                addLog(`👤 ${user.username} (ID: ${user.userId}) 加入了文档`);
+            });
+
+            connection.on("UserLeft", (sessionId, userId, unlockedLayers) => {
+                addLog(`👋 用户 ${userId} 离开了文档`);
+            });
+
+            connection.on("CursorUpdated", (sessionId, userId, x, y) => {
+                addLog(`🖱️ 用户 ${userId} 光标: (${x.toFixed(0)}, ${y.toFixed(0)})`);
+            });
+
+            connection.on("SelectionUpdated", (sessionId, userId, layerIds, pageId) => {
+                addLog(`✅ 用户 ${userId} 选中图层: ${layerIds.join(', ')}`);
+            });
+
+            connection.on("OperationReceived", (operation) => {
+                addLog(`✏️ 收到操作: ${operation.type} on ${operation.layerId}`);
+            });
+
+            connection.on("LayerLocked", (layerId, sessionId, lockUserId) => {
+                addLog(`🔒 图层 ${layerId} 被用户 ${lockUserId} 锁定`);
+            });
+
+            connection.on("LayerUnlocked", (layerId) => {
+                addLog(`🔓 图层 ${layerId} 已解锁`);
+            });
+
+            connection.on("LockFailed", (layerId, lockedBySession) => {
+                addLog(`❌ 锁定失败: 图层 ${layerId} 已被锁定`);
+            });
+
+            connection.onclose(() => {
+                addLog('连接已断开');
+                updateStatus(false);
+            });
+
+            connection.onreconnected(() => {
+                addLog('重新连接成功');
+                updateStatus(true);
+            });
+
+            try {
+                await connection.start();
+                addLog('✅ 连接成功');
+                updateStatus(true);
+
+                // 加入文档
+                await connection.invoke("JoinDocument", documentId, userId, username, username, null);
+                addLog(`✅ 已加入文档 ${documentId}`);
+
+                // 监听鼠标移动
+                document.addEventListener('mousemove', async (e) => {
+                    if (connection?.state === signalR.HubConnectionState.Connected) {
+                        await connection.invoke("UpdateCursor", documentId, e.clientX, e.clientY);
+                    }
+                });
+
+            } catch (err) {
+                addLog(`❌ 连接失败: ${err.message}`);
+                updateStatus(false);
+            }
+        }
+
+        async function disconnect() {
+            if (connection) {
+                const documentId = document.getElementById('documentId').value;
+                await connection.invoke("LeaveDocument", documentId);
+                await connection.stop();
+                connection = null;
+                updateStatus(false);
+                addLog('已断开连接');
+            }
+        }
+
+        async function sendCursor() {
+            if (connection?.state === signalR.HubConnectionState.Connected) {
+                const documentId = document.getElementById('documentId').value;
+                const x = Math.random() * 1000;
+                const y = Math.random() * 800;
+                await connection.invoke("UpdateCursor", documentId, x, y);
+                addLog(`发送光标位置: (${x.toFixed(0)}, ${y.toFixed(0)})`);
+            }
+        }
+
+        async function sendSelection() {
+            if (connection?.state === signalR.HubConnectionState.Connected) {
+                const documentId = document.getElementById('documentId').value;
+                const layerIds = ['layer-1', 'layer-2'];
+                await connection.invoke("UpdateSelection", documentId, layerIds, 'page-1');
+                addLog('发送选中状态: layer-1, layer-2');
+            }
+        }
+
+        async function requestLock() {
+            if (connection?.state === signalR.HubConnectionState.Connected) {
+                const documentId = document.getElementById('documentId').value;
+                const result = await connection.invoke("RequestLock", documentId, 'layer-1');
+                addLog(`锁定图层 layer-1: ${result ? '成功' : '失败'}`);
+            }
+        }
+
+        async function releaseLock() {
+            if (connection?.state === signalR.HubConnectionState.Connected) {
+                const documentId = document.getElementById('documentId').value;
+                await connection.invoke("ReleaseLock", documentId, 'layer-1');
+                addLog('释放图层 layer-1');
+            }
+        }
+
+        async function sendOperation() {
+            if (connection?.state === signalR.HubConnectionState.Connected) {
+                const documentId = document.getElementById('documentId').value;
+                const operation = {
+                    type: 'update_layer',
+                    layerId: 'layer-1',
+                    changes: { 'transform.x': Math.random() * 500 }
+                };
+                await connection.invoke("SendOperation", documentId, operation);
+                addLog('发送操作: update_layer on layer-1');
+            }
+        }
+    </script>
+</body>
+</html>

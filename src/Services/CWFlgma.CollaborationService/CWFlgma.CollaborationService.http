@@ -1,0 +1,6 @@
+@CWFlgma.CollaborationService_HostAddress = http://localhost:5253
+
+GET {{CWFlgma.CollaborationService_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
