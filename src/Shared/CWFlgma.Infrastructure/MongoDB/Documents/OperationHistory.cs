@@ -39,8 +39,8 @@ public class Operation
     public string? LayerId { get; set; }
 
     [BsonElement("changes")]
-    public Dictionary<string, object>? Changes { get; set; }
+    public BsonDocument? Changes { get; set; }
 
     [BsonElement("previousValues")]
-    public Dictionary<string, object>? PreviousValues { get; set; }
+    public BsonDocument? PreviousValues { get; set; }
 }

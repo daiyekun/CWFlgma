@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using CWFlgma.Infrastructure;
 using CWFlgma.Infrastructure.Authentication;
+using CWFlgma.Infrastructure.Authorization;
 using CWFlgma.Infrastructure.PostgreSQL;
 using CWFlgma.Infrastructure.PostgreSQL.Entities;
 using CWFlgma.Infrastructure.Common;
@@ -26,14 +27,22 @@ app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Document endpoints (protected)
+// ==================== Document endpoints with permission check ====================
+
 app.MapGet("/api/documents", async (HttpContext context, CWFlgmaDbContext db) =>
 {
     var userId = context.GetCurrentUserId();
     if (userId == null) return Results.Unauthorized();
 
+    // 获取用户有权限访问的文档
     var documents = await db.Documents
-        .Where(d => d.OwnerId == userId && !d.IsArchived)
+        .Where(d => 
+            d.OwnerId == userId || // 自己的文档
+            d.IsPublic || // 公开文档
+            db.DocumentPermissions.Any(p => p.DocumentId == d.Id && p.UserId == userId) || // 直接权限
+            (d.TeamId != null && db.TeamMembers.Any(tm => tm.TeamId == d.TeamId && tm.UserId == userId)) // 团队文档
+        )
+        .Where(d => !d.IsArchived)
         .Select(d => new
         {
             d.Id,
@@ -43,7 +52,13 @@ app.MapGet("/api/documents", async (HttpContext context, CWFlgmaDbContext db) =>
             d.Width,
             d.Height,
             d.Version,
-            d.UpdatedAt
+            d.OwnerId,
+            d.IsPublic,
+            d.UpdatedAt,
+            Permission = d.OwnerId == userId ? "owner" :
+                         d.IsPublic ? "view" :
+                         db.DocumentPermissions.Where(p => p.DocumentId == d.Id && p.UserId == userId)
+                             .Select(p => p.Permission).FirstOrDefault() ?? "view"
         })
         .ToListAsync();
 
@@ -51,26 +66,44 @@ app.MapGet("/api/documents", async (HttpContext context, CWFlgmaDbContext db) =>
 })
 .RequireAuthorization();
 
-app.MapGet("/api/documents/{id:long}", async (long id, HttpContext context, CWFlgmaDbContext db) =>
+app.MapGet("/api/documents/{id:long}", async (long id, HttpContext context, CWFlgmaDbContext db, IAuthorizationService authService) =>
 {
     var userId = context.GetCurrentUserId();
     if (userId == null) return Results.Unauthorized();
 
+    // 检查访问权限
+    if (!await authService.CanAccessDocumentAsync(userId.Value, id))
+        return Results.Forbid();
+
     var document = await db.Documents
-        .Include(d => d.Permissions)
+        .Include(d => d.Owner)
         .FirstOrDefaultAsync(d => d.Id == id);
 
     if (document == null) return Results.NotFound();
 
-    // Check permission
-    if (document.OwnerId != userId && 
-        !document.IsPublic && 
-        !document.Permissions.Any(p => p.UserId == userId))
-    {
-        return Results.Forbid();
-    }
+    var permission = await authService.GetDocumentPermissionAsync(userId.Value, id);
 
-    return Results.Ok(document);
+    return Results.Ok(new
+    {
+        document.Id,
+        document.Title,
+        document.Description,
+        document.OwnerId,
+        OwnerName = document.Owner.DisplayName,
+        document.TeamId,
+        document.ParentId,
+        document.Type,
+        document.ThumbnailUrl,
+        document.Width,
+        document.Height,
+        document.BackgroundColor,
+        document.IsPublic,
+        document.IsArchived,
+        document.Version,
+        document.CreatedAt,
+        document.UpdatedAt,
+        Permission = permission
+    });
 })
 .RequireAuthorization();
 
@@ -81,7 +114,7 @@ app.MapPost("/api/documents", async (CreateDocumentRequest request, HttpContext 
 
     var document = new Document
     {
-        Id = IdGeneratorExtensions.NewId(),  // 雪花算法
+        Id = IdGeneratorExtensions.NewId(),
         Title = request.Title,
         Description = request.Description,
         OwnerId = userId.Value,
@@ -103,21 +136,17 @@ app.MapPost("/api/documents", async (CreateDocumentRequest request, HttpContext 
 })
 .RequireAuthorization();
 
-app.MapPut("/api/documents/{id:long}", async (long id, UpdateDocumentRequest request, HttpContext context, CWFlgmaDbContext db) =>
+app.MapPut("/api/documents/{id:long}", async (long id, UpdateDocumentRequest request, HttpContext context, CWFlgmaDbContext db, IAuthorizationService authService) =>
 {
     var userId = context.GetCurrentUserId();
     if (userId == null) return Results.Unauthorized();
 
+    // 检查编辑权限
+    if (!await authService.CanEditDocumentAsync(userId.Value, id))
+        return Results.Forbid();
+
     var document = await db.Documents.FindAsync(id);
     if (document == null) return Results.NotFound();
-
-    // Check ownership or edit permission
-    if (document.OwnerId != userId)
-    {
-        var hasPermission = await db.DocumentPermissions
-            .AnyAsync(p => p.DocumentId == id && p.UserId == userId && p.Permission == "edit");
-        if (!hasPermission) return Results.Forbid();
-    }
 
     if (request.Title != null) document.Title = request.Title;
     if (request.Description != null) document.Description = request.Description;
@@ -134,16 +163,17 @@ app.MapPut("/api/documents/{id:long}", async (long id, UpdateDocumentRequest req
 })
 .RequireAuthorization();
 
-app.MapDelete("/api/documents/{id:long}", async (long id, HttpContext context, CWFlgmaDbContext db) =>
+app.MapDelete("/api/documents/{id:long}", async (long id, HttpContext context, CWFlgmaDbContext db, IAuthorizationService authService) =>
 {
     var userId = context.GetCurrentUserId();
     if (userId == null) return Results.Unauthorized();
 
+    // 检查管理权限（只有所有者可以删除）
+    if (!await authService.CanManageDocumentAsync(userId.Value, id))
+        return Results.Forbid();
+
     var document = await db.Documents.FindAsync(id);
     if (document == null) return Results.NotFound();
-
-    // Check ownership
-    if (document.OwnerId != userId) return Results.Forbid();
 
     document.IsArchived = true;
     document.UpdatedAt = DateTime.UtcNow;

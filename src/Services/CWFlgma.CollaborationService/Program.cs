@@ -75,7 +75,8 @@ app.MapGet("/api/collaboration/{documentId}/history", async (string documentId, 
 {
     try
     {
-        var mongoContext = app.Services.GetRequiredService<CWFlgma.Infrastructure.MongoDB.CWFlgmaMongoContext>();
+        using var scope = app.Services.CreateScope();
+        var mongoContext = scope.ServiceProvider.GetRequiredService<CWFlgma.Infrastructure.MongoDB.CWFlgmaMongoContext>();
         var filter = Builders<OperationHistory>.Filter.And(
             Builders<OperationHistory>.Filter.Eq(h => h.DocumentId, documentId),
             Builders<OperationHistory>.Filter.Gt(h => h.SequenceNumber, afterSequence)

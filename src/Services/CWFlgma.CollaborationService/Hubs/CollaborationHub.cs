@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.DependencyInjection;
+using MongoDB.Bson;
 using CWFlgma.CollaborationService.Models;
 using CWFlgma.Infrastructure.MongoDB;
 using CWFlgma.Infrastructure.MongoDB.Documents;
@@ -162,37 +163,8 @@ public class CollaborationHub : Hub
                 user.LastActivity = DateTime.UtcNow;
             }
             
-            // 保存操作到 MongoDB
-            _ = Task.Run(async () =>
-            {
-                try
-                {
-                    using var scope = _serviceProvider.CreateScope();
-                    var mongoContext = scope.ServiceProvider.GetRequiredService<CWFlgmaMongoContext>();
-                    
-                    var history = new OperationHistory
-                    {
-                        DocumentId = documentId,
-                        UserId = user?.UserId.ToString() ?? "unknown",
-                        Timestamp = DateTime.UtcNow,
-                        Operation = new Operation
-                        {
-                            Type = operation.Type,
-                            LayerId = operation.LayerId,
-                            Changes = operation.Changes,
-                            PreviousValues = operation.PreviousValues
-                        },
-                        SequenceNumber = operation.SequenceNumber,
-                        SessionId = sessionId
-                    };
-                    
-                    await mongoContext.OperationHistory.InsertOneAsync(history);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to save operation to MongoDB");
-                }
-            });
+            // 保存操作到 MongoDB（使用注入的服务）
+            _ = SaveOperationToMongoAsync(documentId, operation, sessionId, user?.UserId ?? 0);
             
             // 广播给其他用户
             await Clients.OthersInGroup(documentId).SendAsync("OperationReceived", operation);
@@ -207,31 +179,83 @@ public class CollaborationHub : Hub
     /// </summary>
     public async Task GetOperationHistory(string documentId, long afterSequence = 0, int limit = 100)
     {
+        _logger.LogInformation("GetOperationHistory called for document {DocumentId}", documentId);
+        
         try
         {
             using var scope = _serviceProvider.CreateScope();
             var mongoContext = scope.ServiceProvider.GetRequiredService<CWFlgmaMongoContext>();
             
-            var filter = Builders<OperationHistory>.Filter.And(
-                Builders<OperationHistory>.Filter.Eq(h => h.DocumentId, documentId),
-                Builders<OperationHistory>.Filter.Gt(h => h.SequenceNumber, afterSequence)
-            );
+            _logger.LogInformation("MongoDB context created, querying...");
+            
+            var filter = Builders<OperationHistory>.Filter.Eq(h => h.DocumentId, documentId);
             
             var history = await mongoContext.OperationHistory
                 .Find(filter)
-                .SortBy(h => h.SequenceNumber)
+                .SortByDescending(h => h.SequenceNumber)
                 .Limit(limit)
                 .ToListAsync();
             
-            await Clients.Caller.SendAsync("OperationHistory", history);
+            _logger.LogInformation("Found {Count} operations in MongoDB", history.Count);
             
-            _logger.LogInformation("Sent {Count} operations for document {DocumentId}", history.Count, documentId);
+            // 转换为可序列化的对象
+            var result = history.Select(h => new
+            {
+                documentId = h.DocumentId,
+                userId = h.UserId,
+                timestamp = h.Timestamp,
+                sequenceNumber = h.SequenceNumber,
+                sessionId = h.SessionId,
+                operation = new
+                {
+                    type = h.Operation.Type,
+                    layerId = h.Operation.LayerId,
+                    changes = h.Operation.Changes != null ? BsonDocumentToDictionary(h.Operation.Changes) : null,
+                    previousValues = h.Operation.PreviousValues != null ? BsonDocumentToDictionary(h.Operation.PreviousValues) : null
+                }
+            }).ToList();
+            
+            await Clients.Caller.SendAsync("OperationHistory", result);
+            
+            _logger.LogInformation("Sent {Count} operations to client", result.Count);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to get operation history");
-            await Clients.Caller.SendAsync("Error", "Failed to get operation history");
+            _logger.LogError(ex, "Failed to get operation history: {Message}", ex.Message);
+            await Clients.Caller.SendAsync("OperationHistory", new List<object>());
         }
+    }
+
+    /// <summary>
+    /// 将 BsonDocument 转换为 Dictionary
+    /// </summary>
+    private static Dictionary<string, object?> BsonDocumentToDictionary(BsonDocument doc)
+    {
+        var result = new Dictionary<string, object?>();
+        foreach (var element in doc)
+        {
+            result[element.Name] = BsonValueToObject(element.Value);
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// 将 BsonValue 转换为 object
+    /// </summary>
+    private static object? BsonValueToObject(BsonValue value)
+    {
+        return value.BsonType switch
+        {
+            BsonType.String => value.AsString,
+            BsonType.Int32 => value.AsInt32,
+            BsonType.Int64 => value.AsInt64,
+            BsonType.Double => value.AsDouble,
+            BsonType.Boolean => value.AsBoolean,
+            BsonType.Null => null,
+            BsonType.Document => BsonDocumentToDictionary(value.AsBsonDocument),
+            BsonType.Array => value.AsBsonArray.Select(BsonValueToObject).ToList(),
+            _ => value.ToString()
+        };
     }
 
     /// <summary>
@@ -370,6 +394,99 @@ public class CollaborationHub : Hub
         }
         
         await base.OnDisconnectedAsync(exception);
+    }
+
+    /// <summary>
+    /// 保存操作到 MongoDB
+    /// </summary>
+    private async Task SaveOperationToMongoAsync(string documentId, EditOperation operation, string sessionId, long userId)
+    {
+        try
+        {
+            using var scope = _serviceProvider.CreateScope();
+            var mongoContext = scope.ServiceProvider.GetRequiredService<CWFlgmaMongoContext>();
+            
+            // 将 Dictionary 转换为 BsonDocument
+            BsonDocument? changesDoc = null;
+            if (operation.Changes != null)
+            {
+                changesDoc = new BsonDocument();
+                foreach (var kvp in operation.Changes)
+                {
+                    changesDoc[kvp.Key] = ConvertToBsonValue(kvp.Value);
+                }
+            }
+            
+            BsonDocument? previousDoc = null;
+            if (operation.PreviousValues != null)
+            {
+                previousDoc = new BsonDocument();
+                foreach (var kvp in operation.PreviousValues)
+                {
+                    previousDoc[kvp.Key] = ConvertToBsonValue(kvp.Value);
+                }
+            }
+            
+            var history = new OperationHistory
+            {
+                DocumentId = documentId,
+                UserId = userId.ToString(),
+                Timestamp = DateTime.UtcNow,
+                Operation = new Operation
+                {
+                    Type = operation.Type,
+                    LayerId = operation.LayerId,
+                    Changes = changesDoc,
+                    PreviousValues = previousDoc
+                },
+                SequenceNumber = operation.SequenceNumber,
+                SessionId = sessionId
+            };
+            
+            await mongoContext.OperationHistory.InsertOneAsync(history);
+            _logger.LogInformation("Operation saved to MongoDB: {Type} on {LayerId}", operation.Type, operation.LayerId);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save operation to MongoDB");
+        }
+    }
+
+    /// <summary>
+    /// 将对象转换为 BsonValue
+    /// </summary>
+    private static BsonValue ConvertToBsonValue(object value)
+    {
+        return value switch
+        {
+            null => BsonNull.Value,
+            string s => new BsonString(s),
+            int i => new BsonInt32(i),
+            long l => new BsonInt64(l),
+            double d => new BsonDouble(d),
+            float f => new BsonDouble(f),
+            bool b => new BsonBoolean(b),
+            System.Text.Json.JsonElement json => ConvertJsonElement(json),
+            _ => new BsonString(value.ToString() ?? "")
+        };
+    }
+
+    /// <summary>
+    /// 转换 JsonElement 到 BsonValue
+    /// </summary>
+    private static BsonValue ConvertJsonElement(System.Text.Json.JsonElement json)
+    {
+        return json.ValueKind switch
+        {
+            System.Text.Json.JsonValueKind.String => new BsonString(json.GetString() ?? ""),
+            System.Text.Json.JsonValueKind.Number => json.TryGetInt64(out var l) ? new BsonInt64(l) : new BsonDouble(json.GetDouble()),
+            System.Text.Json.JsonValueKind.True => BsonBoolean.True,
+            System.Text.Json.JsonValueKind.False => BsonBoolean.False,
+            System.Text.Json.JsonValueKind.Null => BsonNull.Value,
+            System.Text.Json.JsonValueKind.Object => BsonDocument.Parse(json.GetRawText()),
+            System.Text.Json.JsonValueKind.Array => new BsonArray(json.EnumerateArray().Select(ConvertJsonElement)),
+            _ => new BsonString(json.GetRawText())
+        };
     }
 
     /// <summary>

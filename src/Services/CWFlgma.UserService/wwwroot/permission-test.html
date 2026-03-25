@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>CWFlgma 权限测试</title>
+    <style>
+        body { font-family: Arial; padding: 20px; max-width: 1000px; margin: 0 auto; }
+        .section { border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .section h3 { margin-top: 0; color: #333; }
+        input, button, select { padding: 8px; margin: 5px; }
+        button { background: #007bff; color: white; border: none; cursor: pointer; border-radius: 3px; }
+        button:hover { background: #0056b3; }
+        button.danger { background: #dc3545; }
+        button.danger:hover { background: #c82333; }
+        #log { border: 1px solid #ccc; height: 300px; overflow-y: auto; padding: 10px; background: #f5f5f5; font-family: monospace; font-size: 12px; }
+        .log-entry { margin: 3px 0; padding: 3px; border-bottom: 1px solid #eee; }
+        .success { color: green; }
+        .error { color: red; }
+        .info { color: blue; }
+        #status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .connected { background: #d4edda; }
+        .disconnected { background: #f8d7da; }
+        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background: #f5f5f5; }
+    </style>
+</head>
+<body>
+    <h1>CWFlgma 权限控制测试</h1>
+    
+    <div id="status" class="disconnected">未登录</div>
+    
+    <!-- API 端口配置 -->
+    <div class="section">
+        <h3>0. API 端口配置（从 Aspire Dashboard 获取）</h3>
+        <input type="text" id="userApiPort" placeholder="UserService HTTPS 端口" value="7108">
+        <input type="text" id="docApiPort" placeholder="DocumentService HTTPS 端口" value="7184">
+        <button onclick="updateApiBase()">更新端口</button>
+        <p>当前 UserService: <span id="currentApiBase">-</span></p>
+        <p>当前 DocumentService: <span id="currentDocApiBase">-</span></p>
+        <p style="color: #666; font-size: 12px;">团队功能使用 UserService，文档权限功能使用 DocumentService</p>
+    </div>
+    
+    <!-- 登录区域 -->
+    <div class="section">
+        <h3>1. 用户登录</h3>
+        <input type="email" id="loginEmail" placeholder="邮箱" value="admin@cwflgma.com">
+        <input type="password" id="loginPassword" placeholder="密码" value="Admin@123456">
+        <button onclick="login()">登录</button>
+        <button onclick="loginAs('demo@cwflgma.com', 'Demo@123456')">登录为 Demo</button>
+    </div>
+    
+    <!-- 团队管理 -->
+    <div class="section">
+        <h3>2. 团队管理</h3>
+        <div>
+            <input type="text" id="teamName" placeholder="团队名称" value="测试团队">
+            <input type="text" id="teamDesc" placeholder="团队描述">
+            <button onclick="createTeam()">创建团队</button>
+            <button onclick="getTeams()">获取我的团队</button>
+        </div>
+        <div>
+            <input type="number" id="teamId" placeholder="团队ID">
+            <button onclick="getTeamDetail()">查看团队详情</button>
+            <button onclick="deleteTeam()" class="danger">删除团队</button>
+        </div>
+        <div id="teamList"></div>
+    </div>
+    
+    <!-- 团队成员 -->
+    <div class="section">
+        <h3>3. 团队成员管理</h3>
+        <div>
+            <input type="number" id="memberTeamId" placeholder="团队ID">
+            <button onclick="getMembers()">获取成员列表</button>
+        </div>
+        <div>
+            <input type="email" id="memberEmail" placeholder="成员邮箱">
+            <select id="memberRole">
+                <option value="member">成员</option>
+                <option value="admin">管理员</option>
+            </select>
+            <button onclick="addMember()">添加成员</button>
+        </div>
+        <div id="memberList"></div>
+    </div>
+    
+    <!-- 文档权限 -->
+    <div class="section">
+        <h3>4. 文档权限管理</h3>
+        <div>
+            <input type="number" id="permDocId" placeholder="文档ID">
+            <button onclick="getPermissions()">获取权限列表</button>
+        </div>
+        <div>
+            <input type="number" id="permUserId" placeholder="用户ID">
+            <input type="number" id="permTeamId" placeholder="团队ID（可选）">
+            <select id="permLevel">
+                <option value="view">查看</option>
+                <option value="edit">编辑</option>
+                <option value="admin">管理</option>
+            </select>
+            <button onclick="grantPermission()">授予权限</button>
+        </div>
+        <div id="permissionList"></div>
+    </div>
+    
+    <!-- 日志 -->
+    <div class="section">
+        <h3>操作日志</h3>
+        <button onclick="clearLog()">清空日志</button>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        let token = null;
+        let currentUser = null;
+        
+        // 使用当前页面的来源作为默认地址
+        let API_BASE = window.location.origin;
+        let DOC_API = window.location.origin;
+        
+        function updateApiBase() {
+            const userPort = document.getElementById('userApiPort').value;
+            const docPort = document.getElementById('docApiPort').value;
+            
+            if (userPort) {
+                API_BASE = `https://localhost:${userPort}`;
+            }
+            if (docPort) {
+                DOC_API = `https://localhost:${docPort}`;
+            }
+            
+            document.getElementById('currentApiBase').textContent = API_BASE;
+            document.getElementById('currentDocApiBase').textContent = DOC_API;
+            addLog(`API 地址已更新: UserService=${API_BASE}, DocumentService=${DOC_API}`, 'info');
+        }
+        
+        function addLog(msg, type = 'info') {
+            const log = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry ' + type;
+            entry.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong> - ${msg}`;
+            log.insertBefore(entry, log.firstChild);
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+        
+        function updateStatus(connected) {
+            const status = document.getElementById('status');
+            if (connected) {
+                status.className = 'connected';
+                status.textContent = `已登录: ${currentUser?.username || 'Unknown'}`;
+            } else {
+                status.className = 'disconnected';
+                status.textContent = '未登录';
+            }
+        }
+        
+        async function apiCall(url, method = 'GET', body = null) {
+            const options = {
+                method,
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            };
+            if (token) {
+                options.headers['Authorization'] = `Bearer ${token}`;
+            }
+            if (body) {
+                options.body = JSON.stringify(body);
+            }
+            
+            try {
+                const response = await fetch(url, options);
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || `HTTP ${response.status}`);
+                }
+                
+                return data;
+            } catch (error) {
+                throw error;
+            }
+        }
+        
+        // ==================== 登录 ====================
+        async function login() {
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            
+            try {
+                var requestURl = `${API_BASE}/api/auth/login`;
+                addLog(`登录请求url:${requestURl}`)
+                const result = await apiCall(requestURl, 'POST', { email, password });
+                addLog(`result:${result}`)
+                token = result.accessToken;
+                currentUser = result.user;
+                updateStatus(true);
+                addLog(`登录成功: ${currentUser.username} (${currentUser.email})`, 'success');
+            } catch (error) {
+                addLog(`登录失败: ${error.message}`, 'error');
+            }
+        }
+        
+        async function loginAs(email, password) {
+            document.getElementById('loginEmail').value = email;
+            document.getElementById('loginPassword').value = password;
+            await login();
+        }
+        
+        // ==================== 团队管理 ====================
+        async function createTeam() {
+            const name = document.getElementById('teamName').value;
+            const description = document.getElementById('teamDesc').value;
+            
+            try {
+                const team = await apiCall(`${API_BASE}/api/teams`, 'POST', { name, description });
+                addLog(`创建团队成功: ${team.name} (ID: ${team.id})`, 'success');
+                await getTeams();
+            } catch (error) {
+                addLog(`创建团队失败: ${error.message}`, 'error');
+            }
+        }
+        
+        async function getTeams() {
+            try {
+                const teams = await apiCall(`${API_BASE}/api/teams`);
+                addLog(`获取到 ${teams.length} 个团队`, 'info');
+                
+                const container = document.getElementById('teamList');
+                if (teams.length === 0) {
+                    container.innerHTML = '<p>暂无团队</p>';
+                    return;
+                }
+                
+                container.innerHTML = `
+                    <table>
+                        <tr><th>ID</th><th>名称</th><th>描述</th><th>创建时间</th><th>操作</th></tr>
+                        ${teams.map(t => `
+                            <tr>
+                                <td>${t.id}</td>
+                                <td>${t.name}</td>
+                                <td>${t.description || '-'}</td>
+                                <td>${new Date(t.createdAt).toLocaleString()}</td>
+                                <td>
+                                    <button onclick="selectTeam(${t.id})">选择</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </table>
+                `;
+            } catch (error) {
+                addLog(`获取团队失败: ${error.message}`, 'error');
+            }
+        }
+        
+        function selectTeam(teamId) {
+            document.getElementById('teamId').value = teamId;
+            document.getElementById('memberTeamId').value = teamId;
+            addLog(`已选择团队: ${teamId}`, 'info');
+        }
+        
+        async function getTeamDetail() {
+            const teamId = document.getElementById('teamId').value;
+            if (!teamId) {
+                addLog('请输入团队ID', 'error');
+                return;
+            }
+            
+            try {
+                const team = await apiCall(`${API_BASE}/api/teams/${teamId}`);
+                addLog(`团队详情: ${JSON.stringify(team)}`, 'info');
+            } catch (error) {
+                addLog(`获取团队详情失败: ${error.message}`, 'error');
+            }
+        }
+        
+        async function deleteTeam() {
+            const teamId = document.getElementById('teamId').value;
+            if (!teamId) {
+                addLog('请输入团队ID', 'error');
+                return;
+            }
+            
+            if (!confirm('确定删除该团队吗？')) return;
+            
+            try {
+                await apiCall(`${API_BASE}/api/teams/${teamId}`, 'DELETE');
+                addLog(`删除团队成功: ${teamId}`, 'success');
+                await getTeams();
+            } catch (error) {
+                addLog(`删除团队失败: ${error.message}`, 'error');
+            }
+        }
+        
+        // ==================== 团队成员 ====================
+        async function getMembers() {
+            const teamId = document.getElementById('memberTeamId').value;
+            if (!teamId) {
+                addLog('请输入团队ID', 'error');
+                return;
+            }
+            
+            try {
+                const members = await apiCall(`${API_BASE}/api/teams/${teamId}/members`);
+                addLog(`获取到 ${members.length} 个成员`, 'info');
+                
+                const container = document.getElementById('memberList');
+                if (members.length === 0) {
+                    container.innerHTML = '<p>暂无成员</p>';
+                    return;
+                }
+                
+                container.innerHTML = `
+                    <table>
+                        <tr><th>ID</th><th>用户名</th><th>邮箱</th><th>角色</th><th>加入时间</th></tr>
+                        ${members.map(m => `
+                            <tr>
+                                <td>${m.id}</td>
+                                <td>${m.user?.username || '-'}</td>
+                                <td>${m.user?.email || '-'}</td>
+                                <td>${m.role}</td>
+                                <td>${new Date(m.joinedAt).toLocaleString()}</td>
+                            </tr>
+                        `).join('')}
+                    </table>
+                `;
+            } catch (error) {
+                addLog(`获取成员失败: ${error.message}`, 'error');
+            }
+        }
+        
+        async function addMember() {
+            const teamId = document.getElementById('memberTeamId').value;
+            const email = document.getElementById('memberEmail').value;
+            const role = document.getElementById('memberRole').value;
+            
+            if (!teamId || !email) {
+                addLog('请输入团队ID和成员邮箱', 'error');
+                return;
+            }
+            
+            try {
+                await apiCall(`${API_BASE}/api/teams/${teamId}/members`, 'POST', { email, role });
+                addLog(`添加成员成功: ${email} (${role})`, 'success');
+                await getMembers();
+            } catch (error) {
+                addLog(`添加成员失败: ${error.message}`, 'error');
+            }
+        }
+        
+        // ==================== 文档权限 ====================
+        async function getPermissions() {
+            const docId = document.getElementById('permDocId').value;
+            if (!docId) {
+                addLog('请输入文档ID', 'error');
+                return;
+            }
+            
+            try {
+                const permissions = await apiCall(`${API_BASE}/api/documents/${docId}/permissions`);
+                addLog(`获取到 ${permissions.length} 条权限记录`, 'info');
+                
+                const container = document.getElementById('permissionList');
+                if (permissions.length === 0) {
+                    container.innerHTML = '<p>暂无权限记录</p>';
+                    return;
+                }
+                
+                container.innerHTML = `
+                    <table>
+                        <tr><th>ID</th><th>用户</th><th>团队</th><th>权限</th><th>授权时间</th></tr>
+                        ${permissions.map(p => `
+                            <tr>
+                                <td>${p.id}</td>
+                                <td>${p.user?.username || '-'}</td>
+                                <td>${p.team?.name || '-'}</td>
+                                <td>${p.permission}</td>
+                                <td>${new Date(p.grantedAt).toLocaleString()}</td>
+                            </tr>
+                        `).join('')}
+                    </table>
+                `;
+            } catch (error) {
+                addLog(`获取权限失败: ${error.message}`, 'error');
+            }
+        }
+        
+        async function grantPermission() {
+            const docId = document.getElementById('permDocId').value;
+            const userId = document.getElementById('permUserId').value;
+            const teamId = document.getElementById('permTeamId').value;
+            const permission = document.getElementById('permLevel').value;
+            
+            if (!docId) {
+                addLog('请输入文档ID', 'error');
+                return;
+            }
+            
+            if (!userId && !teamId) {
+                addLog('请输入用户ID或团队ID', 'error');
+                return;
+            }
+            
+            try {
+                await apiCall(`${API_BASE}/api/documents/${docId}/permissions`, 'POST', {
+                    userId: userId || null,
+                    teamId: teamId || null,
+                    permission
+                });
+                addLog(`授予权限成功: ${permission}`, 'success');
+                await getPermissions();
+            } catch (error) {
+                addLog(`授予权限失败: ${error.message}`, 'error');
+            }
+        }
+    </script>
+</body>
+</html>
