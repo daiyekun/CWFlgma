@@ -5,125 +5,190 @@
 
 <PageTitle>CWFlgma - 协作设计平台</PageTitle>
 
-<div class="home-page">
+<div class="home-wrapper">
+    <!-- Animated Background -->
+    <div class="hero-bg">
+        <div class="grid-pattern"></div>
+        <div class="glow glow-1"></div>
+        <div class="glow glow-2"></div>
+        <div class="glow glow-3"></div>
+    </div>
+
+    <!-- Hero Section -->
     <section class="hero">
         <div class="hero-content">
-            <div class="hero-badge">✨ 全新协作体验</div>
-            <h1>让设计<span class="highlight">协作</span>更简单</h1>
-            <p class="hero-subtitle">CWFlgma 是一款强大的实时协作设计工具，支持多人同时编辑、版本管理和团队协作</p>
+            <div class="hero-badge">
+                <span class="badge-dot"></span>
+                <span>全新协作体验</span>
+            </div>
+            <h1>
+                <span class="gradient-text">创意协作</span>
+                <br/>无限可能
+            </h1>
+            <p>新一代设计协作平台，让团队创意无缝衔接。实时协作、版本管理、精细权限，一站式解决设计团队协作难题。</p>
             <div class="hero-actions">
-                <button class="btn btn-primary btn-lg" @onclick="StartDesign">
+                <button class="btn-hero-primary" @onclick="StartDesign">
                     <span>开始设计</span>
-                    <span>→</span>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="5" y1="12" x2="19" y2="12"/>
+                        <polyline points="12 5 19 12 12 19"/>
+                    </svg>
                 </button>
-                <button class="btn btn-outline btn-lg" @onclick="ViewDemo">
+                <button class="btn-hero-secondary" @onclick="ViewDocs">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon points="5 3 19 12 5 21 5 3"/>
+                    </svg>
                     <span>观看演示</span>
                 </button>
             </div>
             <div class="hero-stats">
-                <div class="stat">
-                    <span class="stat-value">10K+</span>
+                <div class="stat-item">
+                    <span class="stat-number">10K+</span>
                     <span class="stat-label">活跃用户</span>
                 </div>
-                <div class="stat">
-                    <span class="stat-value">50K+</span>
+                <div class="stat-divider"></div>
+                <div class="stat-item">
+                    <span class="stat-number">50K+</span>
                     <span class="stat-label">设计文件</span>
                 </div>
-                <div class="stat">
-                    <span class="stat-value">99.9%</span>
+                <div class="stat-divider"></div>
+                <div class="stat-item">
+                    <span class="stat-number">99.9%</span>
                     <span class="stat-label">可用性</span>
                 </div>
             </div>
         </div>
         <div class="hero-visual">
-            <div class="preview-card">
-                <div class="preview-header">
-                    <div class="preview-dots">
+            <div class="visual-card">
+                <div class="card-header">
+                    <div class="card-dots">
                         <span></span><span></span><span></span>
                     </div>
-                    <span>CWFlgma 设计界面</span>
+                    <span class="card-title">设计编辑器</span>
                 </div>
-                <div class="preview-content">
-                    <div class="preview-shape shape-1"></div>
-                    <div class="preview-shape shape-2"></div>
-                    <div class="preview-shape shape-3"></div>
-                    <div class="preview-cursor cursor-1">👤</div>
-                    <div class="preview-cursor cursor-2">👤</div>
+                <div class="card-content">
+                    <div class="shape shape-rect"></div>
+                    <div class="shape shape-circle"></div>
+                    <div class="shape shape-triangle"></div>
+                    <div class="cursor cursor-1">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="#7C3AED">
+                            <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/>
+                        </svg>
+                        <span>Alice</span>
+                    </div>
+                    <div class="cursor cursor-2">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="#EC4899">
+                            <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/>
+                        </svg>
+                        <span>Bob</span>
+                    </div>
                 </div>
             </div>
         </div>
     </section>
 
+    <!-- Features Section -->
     <section class="features">
         <div class="section-header">
+            <span class="section-tag">核心功能</span>
             <h2>强大功能，助力设计</h2>
-            <p>从原型设计到高保真界面，一站搞定</p>
+            <p>从原型设计到高保真界面，一站式搞定</p>
         </div>
         <div class="features-grid">
             <div class="feature-card">
-                <div class="feature-icon" style="background: linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%);">
-                    <span>📄</span>
+                <div class="feature-icon" style="--gradient: linear-gradient(135deg, #7C3AED, #5B21B6)">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                    </svg>
                 </div>
                 <h3>智能文档管理</h3>
                 <p>轻松创建和管理设计文档，支持版本历史和一键回滚</p>
             </div>
             <div class="feature-card">
-                <div class="feature-icon" style="background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);">
-                    <span>👥</span>
+                <div class="feature-icon" style="--gradient: linear-gradient(135deg, #3B82F6, #1D4ED8)">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                        <circle cx="9" cy="7" r="4"/>
+                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                    </svg>
                 </div>
                 <h3>实时多人协作</h3>
                 <p>团队成员同时在线编辑，光标实时同步，沟通零距离</p>
             </div>
             <div class="feature-card">
-                <div class="feature-icon" style="background: linear-gradient(135deg, #059669 0%, #047857 100%);">
-                    <span>🔒</span>
+                <div class="feature-icon" style="--gradient: linear-gradient(135deg, #10B981, #059669)">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                    </svg>
                 </div>
                 <h3>精细权限控制</h3>
                 <p>灵活的权限管理，保护您的设计资产安全</p>
             </div>
             <div class="feature-card">
-                <div class="feature-icon" style="background: linear-gradient(135deg, #D97706 0%, #B45309 100%);">
-                    <span>🏢</span>
+                <div class="feature-icon" style="--gradient: linear-gradient(135deg, #F59E0B, #D97706)">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <polyline points="12 6 12 12 16 14"/>
+                    </svg>
                 </div>
-                <h3>团队空间</h3>
-                <p>创建团队，邀请成员，高效协作，统一管理</p>
+                <h3>版本历史</h3>
+                <p>完整的版本记录，随时回溯到任意历史版本</p>
             </div>
         </div>
     </section>
 
+    <!-- CTA Section -->
     <section class="cta">
         <div class="cta-content">
             <h2>准备好开始了吗？</h2>
             <p>立即登录，体验强大的设计协作功能</p>
             <div class="cta-actions">
-                <a href="/login" class="btn btn-primary btn-lg">立即登录</a>
-                <a href="/documents" class="btn btn-outline btn-lg">浏览文档</a>
+                <a href="/login" class="btn-cta-primary">立即登录</a>
+                <a href="/documents" class="btn-cta-secondary">浏览文档</a>
             </div>
         </div>
     </section>
 
+    <!-- Quick Links -->
     <section class="quick-links">
         <h3>快速入口</h3>
         <div class="links-grid">
             <a href="/documents" class="link-card">
-                <span class="link-icon">📁</span>
-                <span class="link-text">我的文档</span>
-                <span class="link-arrow">→</span>
+                <div class="link-icon" style="--color: #7C3AED">📁</div>
+                <span>我的文档</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                    <polyline points="12 5 19 12 12 19"/>
+                </svg>
             </a>
             <a href="/teams" class="link-card">
-                <span class="link-icon">👥</span>
-                <span class="link-text">团队管理</span>
-                <span class="link-arrow">→</span>
+                <div class="link-icon" style="--color: #3B82F6">👥</div>
+                <span>团队管理</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                    <polyline points="12 5 19 12 12 19"/>
+                </svg>
             </a>
             <a href="https://localhost:7108/permission-test.html" target="_blank" class="link-card">
-                <span class="link-icon">🔑</span>
-                <span class="link-text">权限测试</span>
-                <span class="link-arrow">↗</span>
+                <div class="link-icon" style="--color: #10B981">🔑</div>
+                <span>权限测试</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                    <polyline points="15 3 21 3 21 9"/>
+                    <line x1="10" y1="14" x2="21" y2="3"/>
+                </svg>
             </a>
             <a href="https://localhost:7184/version-test.html" target="_blank" class="link-card">
-                <span class="link-icon">📝</span>
-                <span class="link-text">版本测试</span>
-                <span class="link-arrow">↗</span>
+                <div class="link-icon" style="--color: #F59E0B">📝</div>
+                <span>版本测试</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                    <polyline points="15 3 21 3 21 9"/>
+                    <line x1="10" y1="14" x2="21" y2="3"/>
+                </svg>
             </a>
         </div>
     </section>
@@ -133,18 +198,11 @@
     private async Task StartDesign()
     {
         var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "authToken");
-        if (!string.IsNullOrEmpty(token))
-        {
-            Navigation.NavigateTo("/documents");
-        }
-        else
-        {
-            Navigation.NavigateTo("/login");
-        }
+        Navigation.NavigateTo(!string.IsNullOrEmpty(token) ? "/documents" : "/login");
     }
 
-    private void ViewDemo()
+    private void ViewDocs()
     {
-        Navigation.NavigateTo("/login");
+        Navigation.NavigateTo("/documents");
     }
 }

@@ -1,10 +1,10 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
-// 添加基础设施资源 - 禁用健康检查
+// 添加基础设施资源 - 使用信任认证
 var postgres = builder.AddPostgres("postgres")
     .WithContainerName("cwflgma-postgres")
     .WithDataVolume("cwflgma-postgres-data")
-    .WithEnvironment("POSTGRES_HOST_AUTH_METHOD", "trust")
+    .WithEnvironment("POSTGRES_PASSWORD", "postgres")
     .WithPgAdmin(pgAdmin => pgAdmin
         .WithContainerName("cwflgma-pgadmin"))
     .AddDatabase("postgresdb");

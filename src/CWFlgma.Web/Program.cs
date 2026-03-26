@@ -12,26 +12,33 @@ builder.Services.AddRazorComponents()
 
 builder.Services.AddOutputCache();
 
-// 配置 HttpClient 指向各个微服务
+// 配置 HttpClient 指向各个微服务（使用 Aspire 服务发现）
 builder.Services.AddHttpClient("UserService", client =>
 {
-    client.BaseAddress = new("https+http://userservice");
+    // 使用 Aspire 服务发现格式
+    client.BaseAddress = new Uri("https+http://userservice");
+})
+.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+{
+    ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
 });
 
 builder.Services.AddHttpClient("DocumentService", client =>
 {
-    client.BaseAddress = new("https+http://documentservice");
+    client.BaseAddress = new Uri("https+http://documentservice");
+})
+.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
+{
+    ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
 });
 
 builder.Services.AddHttpClient("CollaborationService", client =>
 {
-    client.BaseAddress = new("https+http://collaborationservice");
-});
-
-// 保留原有的 WeatherApiClient（如果需要）
-builder.Services.AddHttpClient<WeatherApiClient>(client =>
+    client.BaseAddress = new Uri("https+http://collaborationservice");
+})
+.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler
 {
-    client.BaseAddress = new("https+http://apiservice");
+    ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
 });
 
 var app = builder.Build();
@@ -43,9 +50,9 @@ if (!app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseStaticFiles();
 app.UseAntiforgery();
 app.UseOutputCache();
-app.MapStaticAssets();
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode();

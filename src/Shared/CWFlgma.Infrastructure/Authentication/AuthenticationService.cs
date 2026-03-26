@@ -8,6 +8,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using CWFlgma.Infrastructure.PostgreSQL;
@@ -20,48 +21,84 @@ public class AuthenticationService : IAuthenticationService
 {
     private readonly CWFlgmaDbContext _context;
     private readonly JwtOptions _jwtOptions;
+    private readonly ILogger<AuthenticationService> _logger;
 
-    public AuthenticationService(CWFlgmaDbContext context, IOptions<JwtOptions> jwtOptions)
+    public AuthenticationService(CWFlgmaDbContext context, IOptions<JwtOptions> jwtOptions, ILogger<AuthenticationService> logger)
     {
         _context = context;
         _jwtOptions = jwtOptions.Value;
+        _logger = logger;
     }
 
     public async Task<AuthenticationResult> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
     {
-        var user = await _context.Users
-            .FirstOrDefaultAsync(u => u.Email == request.Email && u.IsActive, cancellationToken);
-
-        if (user == null || !VerifyPassword(request.Password, user.PasswordHash))
+        _logger.LogInformation("[AuthService.LoginAsync] 开始处理登录请求: Email={Email}", request.Email);
+        
+        try
         {
+            _logger.LogDebug("[AuthService.LoginAsync] 查询用户: Email={Email}, IsActive=true", request.Email);
+            
+            var user = await _context.Users
+                .FirstOrDefaultAsync(u => u.Email == request.Email && u.IsActive, cancellationToken);
+
+            if (user == null)
+            {
+                _logger.LogWarning("[AuthService.LoginAsync] 用户不存在或已停用: Email={Email}", request.Email);
+                return new AuthenticationResult
+                {
+                    Success = false,
+                    ErrorMessage = "邮箱或密码错误"
+                };
+            }
+
+            _logger.LogInformation("[AuthService.LoginAsync] 找到用户: Id={UserId}, Username={Username}", user.Id, user.Username);
+            _logger.LogDebug("[AuthService.LoginAsync] 验证密码...");
+            
+            var passwordValid = VerifyPassword(request.Password, user.PasswordHash);
+            _logger.LogInformation("[AuthService.LoginAsync] 密码验证结果: {IsValid}", passwordValid);
+
+            if (!passwordValid)
+            {
+                _logger.LogWarning("[AuthService.LoginAsync] 密码验证失败: UserId={UserId}", user.Id);
+                return new AuthenticationResult
+                {
+                    Success = false,
+                    ErrorMessage = "邮箱或密码错误"
+                };
+            }
+
+            _logger.LogDebug("[AuthService.LoginAsync] 生成 AccessToken...");
+            var accessToken = GenerateAccessToken(user);
+            _logger.LogDebug("[AuthService.LoginAsync] 生成 RefreshToken...");
+            var refreshToken = GenerateRefreshToken();
+
+            user.LastLoginAt = DateTime.UtcNow;
+            _logger.LogDebug("[AuthService.LoginAsync] 保存最后登录时间...");
+            await _context.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation("[AuthService.LoginAsync] 登录成功: UserId={UserId}", user.Id);
+            
             return new AuthenticationResult
             {
-                Success = false,
-                ErrorMessage = "邮箱或密码错误"
+                Success = true,
+                AccessToken = accessToken,
+                RefreshToken = refreshToken,
+                ExpiresAt = DateTime.UtcNow.AddMinutes(_jwtOptions.AccessTokenExpirationMinutes),
+                User = new UserInfo
+                {
+                    Id = user.Id,
+                    Username = user.Username,
+                    Email = user.Email,
+                    DisplayName = user.DisplayName,
+                    AvatarUrl = user.AvatarUrl
+                }
             };
         }
-
-        var accessToken = GenerateAccessToken(user);
-        var refreshToken = GenerateRefreshToken();
-
-        user.LastLoginAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync(cancellationToken);
-
-        return new AuthenticationResult
+        catch (Exception ex)
         {
-            Success = true,
-            AccessToken = accessToken,
-            RefreshToken = refreshToken,
-            ExpiresAt = DateTime.UtcNow.AddMinutes(_jwtOptions.AccessTokenExpirationMinutes),
-            User = new UserInfo
-            {
-                Id = user.Id,
-                Username = user.Username,
-                Email = user.Email,
-                DisplayName = user.DisplayName,
-                AvatarUrl = user.AvatarUrl
-            }
-        };
+            _logger.LogError(ex, "[AuthService.LoginAsync] 登录过程中发生异常: {Message}", ex.Message);
+            throw;
+        }
     }
 
     public async Task<AuthenticationResult> RegisterAsync(RegisterRequest request, CancellationToken cancellationToken = default)

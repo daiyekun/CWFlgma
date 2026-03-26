@@ -1,15 +1,176 @@
-﻿<nav class="navbar">
+﻿@using Microsoft.JSInterop
+@using System.Text.Json
+@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+
+<nav class="navbar">
     <div class="navbar-brand">
-        <a href="">CWFlgma</a>
+        <a href="/">
+            <svg width="32" height="32" viewBox="0 0 64 64" fill="none">
+                <defs>
+                    <linearGradient id="navLogo" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" style="stop-color:#7C3AED"/>
+                        <stop offset="100%" style="stop-color:#EC4899"/>
+                    </linearGradient>
+                </defs>
+                <rect width="64" height="64" rx="16" fill="url(#navLogo)"/>
+                <path d="M32 16L44 28V44L32 56L20 44V28L32 16Z" fill="white" opacity="0.9"/>
+            </svg>
+            <span>CWFlgma</span>
+        </a>
     </div>
     
     <div class="navbar-links">
-        <NavLink href="" Match="NavLinkMatch.All" class="nav-link">首页</NavLink>
-        <NavLink href="documents" class="nav-link">文档</NavLink>
-        <NavLink href="teams" class="nav-link">团队</NavLink>
+        <a href="/" class="nav-link @(IsCurrentPage("/") ? "active" : "")">首页</a>
+        <a href="/documents" class="nav-link @(IsCurrentPage("/documents") ? "active" : "")">文档</a>
+        <a href="/teams" class="nav-link @(IsCurrentPage("/teams") ? "active" : "")">团队</a>
     </div>
     
     <div class="navbar-actions">
-        <a href="login" class="btn-login">登录</a>
+        @if (isLoggedIn)
+        {
+            <div class="user-menu">
+                <div class="user-avatar" @onclick="ToggleUserMenu">
+                    @GetInitial(userName)
+                </div>
+                @if (showUserMenu)
+                {
+                    <div class="user-dropdown">
+                        <div class="user-info">
+                            <strong>@userName</strong>
+                            <small>@userEmail</small>
+                        </div>
+                        <div class="dropdown-divider"></div>
+                        <button class="dropdown-item" @onclick="Logout">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                                <polyline points="16 17 21 12 16 7"/>
+                                <line x1="21" y1="12" x2="9" y2="12"/>
+                            </svg>
+                            <span>退出登录</span>
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <a href="/login" class="btn-login">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+                    <polyline points="10 17 15 12 10 7"/>
+                    <line x1="15" y1="12" x2="3" y2="12"/>
+                </svg>
+                <span>登录</span>
+            </a>
+        }
     </div>
 </nav>
+
+@code {
+    private bool isLoggedIn;
+    private bool showUserMenu;
+    private string userName = "";
+    private string userEmail = "";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CheckLoginStatus();
+        Navigation.LocationChanged += OnLocationChanged;
+    }
+
+    private void OnLocationChanged(object? sender, EventArgs e)
+    {
+        // 页面切换时重新检查登录状态
+        _ = CheckLoginStatus();
+        showUserMenu = false;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await CheckLoginStatus();
+            StateHasChanged();
+        }
+    }
+
+    private async Task CheckLoginStatus()
+    {
+        try
+        {
+            var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "authToken");
+            var userJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "user");
+            
+            var wasLoggedIn = isLoggedIn;
+            
+            if (!string.IsNullOrEmpty(token) && !string.IsNullOrEmpty(userJson))
+            {
+                var user = JsonSerializer.Deserialize<UserInfo>(userJson);
+                if (user != null)
+                {
+                    isLoggedIn = true;
+                    userName = user.DisplayName ?? user.Username ?? "User";
+                    userEmail = user.Email ?? "";
+                }
+            }
+            else
+            {
+                isLoggedIn = false;
+                userName = "";
+                userEmail = "";
+            }
+            
+            // 状态变化时刷新 UI
+            if (wasLoggedIn != isLoggedIn)
+            {
+                StateHasChanged();
+            }
+        }
+        catch
+        {
+            isLoggedIn = false;
+        }
+    }
+
+    private bool IsCurrentPage(string path)
+    {
+        var currentPath = new Uri(Navigation.Uri).AbsolutePath;
+        if (path == "/")
+            return currentPath == "/";
+        return currentPath.StartsWith(path);
+    }
+
+    private void ToggleUserMenu()
+    {
+        showUserMenu = !showUserMenu;
+    }
+
+    private async Task Logout()
+    {
+        await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "authToken");
+        await JSRuntime.InvokeVoidAsync("localStorage.removeItem", "user");
+        isLoggedIn = false;
+        showUserMenu = false;
+        StateHasChanged();
+        Navigation.NavigateTo("/", forceLoad: true);
+    }
+
+    private string GetInitial(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return "U";
+        return name.Substring(0, 1).ToUpper();
+    }
+
+    public void Dispose()
+    {
+        Navigation.LocationChanged -= OnLocationChanged;
+    }
+
+    private class UserInfo
+    {
+        public string? Username { get; set; }
+        public string? Email { get; set; }
+        public string? DisplayName { get; set; }
+    }
+}

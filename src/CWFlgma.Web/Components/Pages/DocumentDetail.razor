@@ -1,0 +1,318 @@
+@page "/documents/{Id:long}"
+@using System.Net.Http.Json
+@using Microsoft.JSInterop
+@inject IHttpClientFactory HttpClientFactory
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+<PageTitle>设计编辑器</PageTitle>
+
+<div class="editor">
+    <header class="toolbar">
+        <div class="toolbar-left">
+            <a href="/documents" class="back-btn">← 返回</a>
+            <span class="title">@(document?.Title ?? "加载中...")</span>
+        </div>
+        <div class="toolbar-center">
+            <button class="tool @(tool == "select" ? "active" : "")" @onclick='() => tool = "select"'>选择</button>
+            <button class="tool @(tool == "rect" ? "active" : "")" @onclick='() => tool = "rect"'>矩形</button>
+            <button class="tool @(tool == "ellipse" ? "active" : "")" @onclick='() => tool = "ellipse"'>圆形</button>
+            <button class="tool @(tool == "text" ? "active" : "")" @onclick='() => tool = "text"'>文本</button>
+            <button class="tool @(tool == "hand" ? "active" : "")" @onclick='() => tool = "hand"'>移动</button>
+        </div>
+        <div class="toolbar-right">
+            <span class="zoom">@((int)(zoom*100))%</span>
+            <button class="btn" @onclick="() => showVer = true">版本</button>
+        </div>
+    </header>
+
+    <div class="main">
+        <!-- 左侧 -->
+        <aside class="left">
+            <div class="section-title">图层</div>
+            @foreach (var l in layers)
+            {
+                <div class="layer @(selId == l.Id ? "sel" : "")" @onclick="() => selId = l.Id">
+                    <span>@l.Name</span>
+                </div>
+            }
+            <div class="section-title">添加</div>
+            <div class="add-btns">
+                <button @onclick="@(() => AddEl("rect"))">矩形</button>
+                <button @onclick="@(() => AddEl("ellipse"))">圆形</button>
+                <button @onclick="@(() => AddEl("text"))">文本</button>
+                <button @onclick="@(() => AddEl("button"))">按钮</button>
+            </div>
+        </aside>
+
+        <!-- 画布 -->
+        <div class="canvas-area" id="canvasArea"
+             @onmousedown="OnDown"
+             @onmousemove="OnMove" 
+             @onmouseup="OnUp">
+            <div class="canvas-wrap" style="transform:translate(@(px)px,@(py)px) scale(@zoom)">
+                <div class="canvas" style="width:@(document?.Width ?? 800)px; height:@(document?.Height ?? 600)px; background:@(document?.BackgroundColor ?? "#fff")">
+                    @foreach (var s in shapes)
+                    {
+                        <div class="el @s.Type @(selId == s.Id ? "sel" : "")"
+                             style="left:@(s.X)px;top:@(s.Y)px;width:@(s.W)px;height:@(s.H)px;background:@(s.Type=="text"?"transparent":s.Fill);border-radius:@(s.Type=="ellipse"?"50%":s.R+"px")"
+                             @onmousedown="@(e => ShapeDown(e, s))"
+                             @onmousedown:stopPropagation="true">
+                            @if (s.Text != null) { <span>@s.Text</span> }
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧 -->
+        <aside class="right">
+            <div class="section-title">属性</div>
+            @if (cur != null)
+            {
+                <div class="prop">
+                    <label>X</label>
+                    <input type="number" value="@cur.X" @oninput="e => { if(int.TryParse(e.Value?.ToString(),out var v)) cur.X=v; }" />
+                </div>
+                <div class="prop">
+                    <label>Y</label>
+                    <input type="number" value="@cur.Y" @oninput="e => { if(int.TryParse(e.Value?.ToString(),out var v)) cur.Y=v; }" />
+                </div>
+                <div class="prop">
+                    <label>宽度</label>
+                    <input type="number" value="@cur.W" @oninput="e => { if(int.TryParse(e.Value?.ToString(),out var v)) cur.W=v; }" />
+                </div>
+                <div class="prop">
+                    <label>高度</label>
+                    <input type="number" value="@cur.H" @oninput="e => { if(int.TryParse(e.Value?.ToString(),out var v)) cur.H=v; }" />
+                </div>
+                <div class="prop">
+                    <label>颜色</label>
+                    <input type="color" value="@cur.Fill" @oninput="e => cur.Fill = e.Value?.ToString() ?? cur.Fill" />
+                </div>
+                <div class="prop">
+                    <label>圆角</label>
+                    <input type="number" value="@cur.R" @oninput="e => { if(int.TryParse(e.Value?.ToString(),out var v)) cur.R=v; }" />
+                </div>
+                @if (cur.Type == "text" || cur.Type == "button")
+                {
+                    <div class="prop">
+                        <label>文字</label>
+                        <input type="text" value="@cur.Text" @oninput="e => cur.Text = e.Value?.ToString()" />
+                    </div>
+                }
+                <button class="del" @onclick="Del">删除</button>
+            }
+            else
+            {
+                <p class="hint">选中元素查看属性</p>
+            }
+        </aside>
+    </div>
+
+    <footer class="status">
+        <span>工具: @tool</span>
+        <span>位置: @(cur?.X ?? 0), @(cur?.Y ?? 0)</span>
+    </footer>
+</div>
+
+@if (showVer)
+{
+    <div class="modal-bg" @onclick="() => showVer = false">
+        <div class="modal" @onclick:stopPropagation>
+            <h3>版本历史</h3>
+            @foreach (var v in vers)
+            {
+                <div class="ver">
+                    <span>v@v.VersionNumber - @v.CreatedAt.ToString("MM-dd HH:mm")</span>
+                    <button @onclick="() => Restore(v.Id)">回滚</button>
+                </div>
+            }
+            <button class="save-btn" @onclick="SaveVer">保存版本</button>
+            <button class="close-btn" @onclick="() => showVer = false">关闭</button>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public long Id { get; set; }
+
+    // 数据
+    Doc? document;
+    List<Ver> vers = new();
+    List<Lay> layers = new();
+    List<El> shapes = new();
+
+    // UI
+    bool showVer;
+    string tool = "select";
+    string? selId;
+    double zoom = 1;
+    double px = 20, py = 20;
+
+    // 拖拽
+    bool dragging, panning;
+    double mx0, my0;  // 鼠标起始
+    double elX0, elY0; // 元素起始
+    double px0, py0;   // 画布起始
+
+    El? cur => shapes.FirstOrDefault(s => s.Id == selId);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDoc();
+        await LoadVers();
+        // 示例数据
+        layers = new() { new("bg","背景"), new("t1","标题"), new("b1","按钮") };
+        shapes = new() {
+            new("bg","rect",0,0,600,400,"#2d2d3f"),
+            new("t1","text",50,50,200,40,"#fff"){Text="CWFlgma"},
+            new("b1","button",50,150,120,44,"#7c3aed",8){Text="开始"}
+        };
+    }
+
+    void ShapeDown(MouseEventArgs e, El s)
+    {
+        if (tool != "select") return;
+        
+        selId = s.Id;
+        dragging = true;
+        mx0 = e.ClientX;
+        my0 = e.ClientY;
+        elX0 = s.X;
+        elY0 = s.Y;
+    }
+
+    void OnDown(MouseEventArgs e)
+    {
+        mx0 = e.ClientX;
+        my0 = e.ClientY;
+
+        if (tool == "hand")
+        {
+            panning = true;
+            px0 = px;
+            py0 = py;
+        }
+        else if (tool == "select")
+        {
+            selId = null; // 点击空白取消选择
+        }
+        else
+        {
+            // 添加元素到点击位置
+            var canvasX = (e.OffsetX - px) / zoom;
+            var canvasY = (e.OffsetY - py) / zoom;
+            AddAt(tool, (int)canvasX, (int)canvasY);
+        }
+    }
+
+    void OnMove(MouseEventArgs e)
+    {
+        if (dragging && cur != null)
+        {
+            var dx = (e.ClientX - mx0) / zoom;
+            var dy = (e.ClientY - my0) / zoom;
+            cur.X = (int)(elX0 + dx);
+            cur.Y = (int)(elY0 + dy);
+        }
+        else if (panning)
+        {
+            px = px0 + (e.ClientX - mx0);
+            py = py0 + (e.ClientY - my0);
+        }
+    }
+
+    void OnUp(MouseEventArgs e)
+    {
+        dragging = false;
+        panning = false;
+    }
+
+    void AddEl(string type)
+    {
+        if (document == null) return;
+        AddAt(type, document.Width / 2, document.Height / 2);
+    }
+
+    void AddAt(string type, int x, int y)
+    {
+        var id = Guid.NewGuid().ToString("N")[..8];
+        var (w,h) = type switch { "button"=>(120,44), "text"=>(150,30), "ellipse"=>(100,100), _=>(100,100) };
+        var fill = type switch { "button"=>"#7c3aed", "rect"=>"#3b82f6", "ellipse"=>"#ec4899", _=>"#333" };
+        var text = type switch { "button"=>"按钮", "text"=>"文本", _=>null };
+        var r = type == "button" ? 8 : 0;
+
+        shapes.Add(new El(id, type, x - w/2, y - h/2, w, h, fill, r) { Text = text });
+        layers.Add(new Lay(id, type + " " + (layers.Count+1)));
+        selId = id;
+        tool = "select";
+    }
+
+    void Del()
+    {
+        if (selId == null) return;
+        shapes.RemoveAll(s => s.Id == selId);
+        layers.RemoveAll(l => l.Id == selId);
+        selId = null;
+    }
+
+    // API
+    async Task LoadDoc()
+    {
+        try {
+            var t = await JSRuntime.InvokeAsync<string>("localStorage.getItem","authToken");
+            if (string.IsNullOrEmpty(t)) { Navigation.NavigateTo("/login"); return; }
+            var c = HttpClientFactory.CreateClient("DocumentService");
+            c.DefaultRequestHeaders.Authorization = new("Bearer",t);
+            var r = await c.GetAsync("/api/documents/"+Id);
+            if (r.IsSuccessStatusCode) document = await r.Content.ReadFromJsonAsync<Doc>();
+        } catch {}
+    }
+
+    async Task LoadVers()
+    {
+        try {
+            var t = await JSRuntime.InvokeAsync<string>("localStorage.getItem","authToken");
+            var c = HttpClientFactory.CreateClient("DocumentService");
+            c.DefaultRequestHeaders.Authorization = new("Bearer",t);
+            vers = await c.GetFromJsonAsync<List<Ver>>($"/api/documents/{Id}/versions") ?? new();
+        } catch {}
+    }
+
+    async Task SaveVer()
+    {
+        try {
+            var t = await JSRuntime.InvokeAsync<string>("localStorage.getItem","authToken");
+            var c = HttpClientFactory.CreateClient("DocumentService");
+            c.DefaultRequestHeaders.Authorization = new("Bearer",t);
+            await c.PostAsJsonAsync($"/api/documents/{Id}/versions", new { title = "v"+(vers.Count+1) });
+            await LoadVers();
+        } catch {}
+    }
+
+    async Task Restore(long vid)
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm","确定回滚？")) return;
+        try {
+            var t = await JSRuntime.InvokeAsync<string>("localStorage.getItem","authToken");
+            var c = HttpClientFactory.CreateClient("DocumentService");
+            c.DefaultRequestHeaders.Authorization = new("Bearer",t);
+            await c.PostAsync($"/api/documents/{Id}/versions/{vid}/restore",null);
+            await LoadDoc();
+        } catch {}
+    }
+
+    // DTOs
+    record Doc(long Id, string Title, int Width, int Height, string BackgroundColor);
+    record Ver(long Id, int VersionNumber, DateTime CreatedAt);
+    record Lay(string Id, string Name);
+    class El {
+        public string Id, Type, Fill;
+        public int X, Y, W, H, R;
+        public string? Text;
+        public El(string id, string type, int x, int y, int w, int h, string fill, int r=0) {
+            Id=id; Type=type; X=x; Y=y; W=w; H=h; Fill=fill; R=r;
+        }
+    }
+}

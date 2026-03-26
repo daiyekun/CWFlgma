@@ -44,12 +44,35 @@ app.UseAuthorization();
 
 // ==================== Auth endpoints ====================
 
-app.MapPost("/api/auth/login", async (LoginRequest request, IAuthenticationService authService) =>
+app.MapPost("/api/auth/login", async (LoginRequest request, IAuthenticationService authService, ILoggerFactory loggerFactory) =>
 {
-    var result = await authService.LoginAsync(request);
-    if (!result.Success)
-        return Results.BadRequest(new { error = result.ErrorMessage });
-    return Results.Ok(result);
+    var logger = loggerFactory.CreateLogger("AuthEndpoints");
+    
+    logger.LogInformation("[Login] 收到登录请求: Email={Email}", request.Email);
+    logger.LogDebug("[Login] 请求详情: {@Request}", new { request.Email, PasswordLength = request.Password?.Length ?? 0 });
+    
+    try
+    {
+        logger.LogInformation("[Login] 调用 AuthenticationService.LoginAsync...");
+        var result = await authService.LoginAsync(request);
+        
+        logger.LogInformation("[Login] LoginAsync 完成: Success={Success}", result.Success);
+        
+        if (!result.Success)
+        {
+            logger.LogWarning("[Login] 登录失败: {ErrorMessage}", result.ErrorMessage);
+            return Results.BadRequest(new { error = result.ErrorMessage });
+        }
+        
+        logger.LogInformation("[Login] 登录成功: UserId={UserId}, Username={Username}", 
+            result.User?.Id, result.User?.Username);
+        return Results.Ok(result);
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "[Login] 登录过程中发生异常: {Message}", ex.Message);
+        return Results.Problem($"登录失败: {ex.Message}");
+    }
 });
 
 app.MapPost("/api/auth/register", async (RegisterRequest request, IAuthenticationService authService) =>

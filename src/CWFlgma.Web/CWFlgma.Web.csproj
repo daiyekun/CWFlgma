@@ -10,4 +10,8 @@
     <ProjectReference Include="..\CWFlgma.ServiceDefaults\CWFlgma.ServiceDefaults.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.5" />
+  </ItemGroup>
+
 </Project>
