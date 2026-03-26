@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>CWFlgma 版本历史测试</title>
+    <style>
+        body { font-family: Arial; padding: 20px; max-width: 1200px; margin: 0 auto; }
+        .section { border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 5px; }
+        .section h3 { margin-top: 0; color: #333; }
+        input, button, select, textarea { padding: 8px; margin: 5px; }
+        button { background: #007bff; color: white; border: none; cursor: pointer; border-radius: 3px; }
+        button:hover { background: #0056b3; }
+        button.success { background: #28a745; }
+        button.success:hover { background: #218838; }
+        button.warning { background: #ffc107; color: #333; }
+        button.warning:hover { background: #e0a800; }
+        button.danger { background: #dc3545; }
+        button.danger:hover { background: #c82333; }
+        #log { border: 1px solid #ccc; height: 300px; overflow-y: auto; padding: 10px; background: #f5f5f5; font-family: monospace; font-size: 12px; }
+        .log-entry { margin: 3px 0; padding: 3px; border-bottom: 1px solid #eee; }
+        .success { color: green; }
+        .error { color: red; }
+        .info { color: blue; }
+        #status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .connected { background: #d4edda; }
+        .disconnected { background: #f8d7da; }
+        table { width: 100%; border-collapse: collapse; margin: 10px 0; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background: #f5f5f5; }
+        .version-item { background: #f9f9f9; padding: 10px; margin: 5px 0; border-radius: 5px; border-left: 4px solid #007bff; }
+        .version-item.current { border-left-color: #28a745; }
+        .compare-result { background: #fff3cd; padding: 15px; border-radius: 5px; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>CWFlgma 版本历史测试</h1>
+    
+    <div id="status" class="disconnected">未登录</div>
+    
+    <!-- API 端口配置 -->
+    <div class="section">
+        <h3>0. API 端口配置</h3>
+        <input type="text" id="userApiPort" placeholder="UserService HTTPS 端口" value="7108">
+        <input type="text" id="docApiPort" placeholder="DocumentService HTTPS 端口" value="7184">
+        <button onclick="updateApiBase()">更新端口</button>
+        <p>当前 UserService: <span id="currentAuthApi">-</span></p>
+        <p>当前 DocumentService: <span id="currentApiBase">-</span></p>
+    </div>
+    
+    <!-- 登录区域 -->
+    <div class="section">
+        <h3>1. 用户登录</h3>
+        <input type="email" id="loginEmail" placeholder="邮箱" value="admin@cwflgma.com">
+        <input type="password" id="loginPassword" placeholder="密码" value="Admin@123456">
+        <button onclick="login()">登录</button>
+        <span id="loginResult"></span>
+    </div>
+    
+    <!-- 文档操作 -->
+    <div class="section">
+        <h3>2. 选择文档</h3>
+        <input type="number" id="documentId" placeholder="文档ID" value="691922341136674816">
+        <button onclick="getDocumentInfo()">获取文档信息</button>
+        <div id="docInfo"></div>
+    </div>
+    
+    <!-- 版本管理 -->
+    <div class="section">
+        <h3>3. 版本管理</h3>
+        <div>
+            <button onclick="getVersions()" class="success">获取版本列表</button>
+            <button onclick="showCreateVersion()">创建新版本</button>
+        </div>
+        
+        <div id="createVersionForm" style="display:none; background:#f0f0f0; padding:10px; margin:10px 0; border-radius:5px;">
+            <h4>创建新版本</h4>
+            <input type="text" id="versionTitle" placeholder="版本标题（可选）" style="width:300px;">
+            <br>
+            <textarea id="versionComment" placeholder="版本备注（可选）" style="width:300px; height:60px;"></textarea>
+            <br>
+            <input type="text" id="snapshotUrl" placeholder="快照URL（可选）" style="width:300px;">
+            <br>
+            <button onclick="createVersion()" class="success">确认创建</button>
+            <button onclick="hideCreateVersion()">取消</button>
+        </div>
+        
+        <div id="versionList"></div>
+    </div>
+    
+    <!-- 版本操作 -->
+    <div class="section">
+        <h3>4. 版本操作</h3>
+        <div>
+            <input type="number" id="versionId" placeholder="版本ID">
+            <button onclick="getVersionDetail()">查看详情</button>
+            <button onclick="restoreVersion()" class="warning">回滚到此版本</button>
+        </div>
+        <div>
+            <input type="number" id="compareV1" placeholder="版本1 ID">
+            <input type="number" id="compareV2" placeholder="版本2 ID">
+            <button onclick="compareVersions()">对比版本</button>
+        </div>
+        <div id="versionDetail"></div>
+        <div id="compareResult"></div>
+    </div>
+    
+    <!-- 日志 -->
+    <div class="section">
+        <h3>操作日志</h3>
+        <button onclick="clearLog()">清空日志</button>
+        <div id="log"></div>
+    </div>
+
+    <script>
+        let token = null;
+        let currentUser = null;
+        let AUTH_API = 'https://localhost:7108';
+        let API_BASE = 'https://localhost:7184';
+        
+        function updateApiBase() {
+            const userPort = document.getElementById('userApiPort').value;
+            const docPort = document.getElementById('docApiPort').value;
+            
+            if (userPort) {
+                AUTH_API = `https://localhost:${userPort}`;
+            }
+            if (docPort) {
+                API_BASE = `https://localhost:${docPort}`;
+            }
+            
+            document.getElementById('currentAuthApi').textContent = AUTH_API;
+            document.getElementById('currentApiBase').textContent = API_BASE;
+            addLog(`API 地址已更新: UserService=${AUTH_API}, DocumentService=${API_BASE}`, 'info');
+        }
+        
+        function addLog(msg, type = 'info') {
+            const log = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry ' + type;
+            entry.innerHTML = `<strong>${new Date().toLocaleTimeString()}</strong> - ${msg}`;
+            log.insertBefore(entry, log.firstChild);
+        }
+        
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+        
+        function updateStatus(connected) {
+            const status = document.getElementById('status');
+            if (connected) {
+                status.className = 'connected';
+                status.textContent = `已登录: ${currentUser?.username || 'Unknown'}`;
+            } else {
+                status.className = 'disconnected';
+                status.textContent = '未登录';
+            }
+        }
+        
+        async function apiCall(url, method = 'GET', body = null) {
+            const options = {
+                method,
+                headers: { 'Content-Type': 'application/json' }
+            };
+            if (token) {
+                options.headers['Authorization'] = `Bearer ${token}`;
+            }
+            if (body) {
+                options.body = JSON.stringify(body);
+            }
+            
+            try {
+                const response = await fetch(url, options);
+                const data = await response.json();
+                
+                if (!response.ok) {
+                    throw new Error(data.error || `HTTP ${response.status}`);
+                }
+                
+                return data;
+            } catch (error) {
+                throw error;
+            }
+        }
+        
+        // 登录
+        async function login() {
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+            
+            try {
+                const result = await apiCall(`${AUTH_API}/api/auth/login`, 'POST', { email, password });
+                token = result.accessToken;
+                currentUser = result.user;
+                updateStatus(true);
+                document.getElementById('loginResult').textContent = `✓ ${currentUser.username}`;
+                addLog(`登录成功: ${currentUser.username}`, 'success');
+            } catch (error) {
+                addLog(`登录失败: ${error.message}`, 'error');
+            }
+        }
+        
+        // 获取文档信息
+        async function getDocumentInfo() {
+            const docId = document.getElementById('documentId').value;
+            if (!docId) {
+                addLog('请输入文档ID', 'error');
+                return;
+            }
+            
+            try {
+                const doc = await apiCall(`${API_BASE}/api/documents/${docId}`);
+                document.getElementById('docInfo').innerHTML = `
+                    <div class="version-item">
+                        <strong>${doc.title}</strong> (ID: ${doc.id})<br>
+                        类型: ${doc.type} | 版本: ${doc.version} | 所有者: ${doc.ownerName}<br>
+                        创建时间: ${new Date(doc.createdAt).toLocaleString()}<br>
+                        更新时间: ${new Date(doc.updatedAt).toLocaleString()}
+                    </div>
+                `;
+                addLog(`获取文档信息成功: ${doc.title}`, 'success');
+            } catch (error) {
+                addLog(`获取文档信息失败: ${error.message}`, 'error');
+            }
+        }
+        
+        // 显示/隐藏创建版本表单
+        function showCreateVersion() {
+            document.getElementById('createVersionForm').style.display = 'block';
+        }
+        
+        function hideCreateVersion() {
+            document.getElementById('createVersionForm').style.display = 'none';
+        }
+        
+        // 获取版本列表
+        async function getVersions() {
+            const docId = document.getElementById('documentId').value;
+            if (!docId) {
+                addLog('请输入文档ID', 'error');
+                return;
+            }
+            
+            try {
+                const versions = await apiCall(`${API_BASE}/api/documents/${docId}/versions`);
+                addLog(`获取到 ${versions.length} 个版本`, 'info');
+                
+                const container = document.getElementById('versionList');
+                if (versions.length === 0) {
+                    container.innerHTML = '<p>暂无版本记录</p>';
+                    return;
+                }
+                
+                container.innerHTML = `
+                    <table>
+                        <tr><th>ID</th><th>版本号</th><th>标题</th><th>备注</th><th>创建时间</th><th>操作</th></tr>
+                        ${versions.map(v => `
+                            <tr>
+                                <td>${v.id}</td>
+                                <td>v${v.versionNumber}</td>
+                                <td>${v.title || '-'}</td>
+                                <td>${v.comment || '-'}</td>
+                                <td>${new Date(v.createdAt).toLocaleString()}</td>
+                                <td>
+                                    <button onclick="selectVersion(${v.id})">选择</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </table>
+                `;
+            } catch (error) {
+                addLog(`获取版本列表失败: ${error.message}`, 'error');
+            }
+        }
+        
+        // 选择版本
+        function selectVersion(versionId) {
+            document.getElementById('versionId').value = versionId;
+            addLog(`已选择版本: ${versionId}`, 'info');
+        }
+        
+        // 创建新版本
+        async function createVersion() {
+            const docId = document.getElementById('documentId').value;
+            const title = document.getElementById('versionTitle').value || null;
+            const comment = document.getElementById('versionComment').value || null;
+            const snapshotUrl = document.getElementById('snapshotUrl').value || null;
+            
+            if (!docId) {
+                addLog('请输入文档ID', 'error');
+                return;
+            }
+            
+            try {
+                const version = await apiCall(`${API_BASE}/api/documents/${docId}/versions`, 'POST', {
+                    title,
+                    comment,
+                    snapshotUrl
+                });
+                addLog(`创建版本成功: v${version.versionNumber} (ID: ${version.id})`, 'success');
+                hideCreateVersion();
+                await getVersions();
+            } catch (error) {
+                addLog(`创建版本失败: ${error.message}`, 'error');
+            }
+        }
+        
+        // 获取版本详情
+        async function getVersionDetail() {
+            const docId = document.getElementById('documentId').value;
+            const versionId = document.getElementById('versionId').value;
+            
+            if (!docId || !versionId) {
+                addLog('请输入文档ID和版本ID', 'error');
+                return;
+            }
+            
+            try {
+                const version = await apiCall(`${API_BASE}/api/documents/${docId}/versions/${versionId}`);
+                document.getElementById('versionDetail').innerHTML = `
+                    <div class="version-item">
+                        <h4>版本详情</h4>
+                        <strong>ID:</strong> ${version.id}<br>
+                        <strong>版本号:</strong> v${version.versionNumber}<br>
+                        <strong>标题:</strong> ${version.title || '-'}<br>
+                        <strong>备注:</strong> ${version.comment || '-'}<br>
+                        <strong>快照URL:</strong> ${version.snapshotUrl || '-'}<br>
+                        <strong>创建者:</strong> ${version.createdBy}<br>
+                        <strong>创建时间:</strong> ${new Date(version.createdAt).toLocaleString()}
+                    </div>
+                `;
+                addLog(`获取版本详情成功: v${version.versionNumber}`, 'success');
+            } catch (error) {
+                addLog(`获取版本详情失败: ${error.message}`, 'error');
+            }
+        }
+        
+        // 回滚版本
+        async function restoreVersion() {
+            const docId = document.getElementById('documentId').value;
+            const versionId = document.getElementById('versionId').value;
+            
+            if (!docId || !versionId) {
+                addLog('请输入文档ID和版本ID', 'error');
+                return;
+            }
+            
+            if (!confirm('确定要回滚到此版本吗？当前状态将自动备份。')) return;
+            
+            try {
+                const result = await apiCall(`${API_BASE}/api/documents/${docId}/versions/${versionId}/restore`, 'POST');
+                addLog(`回滚成功: ${result.message}, 新版本号: ${result.newVersion}`, 'success');
+                await getVersions();
+            } catch (error) {
+                addLog(`回滚失败: ${error.message}`, 'error');
+            }
+        }
+        
+        // 对比版本
+        async function compareVersions() {
+            const docId = document.getElementById('documentId').value;
+            const v1 = document.getElementById('compareV1').value;
+            const v2 = document.getElementById('compareV2').value;
+            
+            if (!docId || !v1 || !v2) {
+                addLog('请输入文档ID和两个版本ID', 'error');
+                return;
+            }
+            
+            try {
+                const result = await apiCall(`${API_BASE}/api/documents/${docId}/versions/compare?v1=${v1}&v2=${v2}`);
+                document.getElementById('compareResult').innerHTML = `
+                    <div class="compare-result">
+                        <h4>版本对比结果</h4>
+                        <table>
+                            <tr><th>属性</th><th>版本 ${result.version1.versionNumber}</th><th>版本 ${result.version2.versionNumber}</th></tr>
+                            <tr><td>ID</td><td>${result.version1.id}</td><td>${result.version2.id}</td></tr>
+                            <tr><td>标题</td><td>${result.version1.title || '-'}</td><td>${result.version2.title || '-'}</td></tr>
+                            <tr><td>备注</td><td>${result.version1.comment || '-'}</td><td>${result.version2.comment || '-'}</td></tr>
+                            <tr><td>创建时间</td><td>${new Date(result.version1.createdAt).toLocaleString()}</td><td>${new Date(result.version2.createdAt).toLocaleString()}</td></tr>
+                        </table>
+                        <p><strong>标题是否变更:</strong> ${result.differences.titleChanged ? '是' : '否'}</p>
+                        <p><strong>时间差:</strong> ${result.differences.timeDiff}</p>
+                    </div>
+                `;
+                addLog(`版本对比完成`, 'success');
+            } catch (error) {
+                addLog(`版本对比失败: ${error.message}`, 'error');
+            }
+        }
+        
+        // 初始化
+        updateApiBase();
+    </script>
+</body>
+</html>

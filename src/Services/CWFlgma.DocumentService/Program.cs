@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using CWFlgma.Infrastructure;
 using CWFlgma.Infrastructure.Authentication;
 using CWFlgma.Infrastructure.Authorization;
@@ -14,6 +16,21 @@ var builder = WebApplication.CreateBuilder(args);
 // Add services to the container
 builder.Services.AddOpenApi();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.ConfigureHttpJsonOptions(options =>
+{
+    options.SerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+});
+
+// Add CORS
+builder.Services.AddCors(options =>
+{
+    options.AddDefaultPolicy(policy =>
+    {
+        policy.AllowAnyOrigin()
+              .AllowAnyMethod()
+              .AllowAnyHeader();
+    });
+});
 
 var app = builder.Build();
 
@@ -24,6 +41,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseStaticFiles();
+app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -184,7 +203,180 @@ app.MapDelete("/api/documents/{id:long}", async (long id, HttpContext context, C
 })
 .RequireAuthorization();
 
+// ==================== Document Version History endpoints ====================
+
+app.MapGet("/api/documents/{documentId:long}/versions", async (long documentId, HttpContext context, CWFlgmaDbContext db, IAuthorizationService authService) =>
+{
+    var userId = context.GetCurrentUserId();
+    if (userId == null) return Results.Unauthorized();
+
+    // 检查访问权限
+    if (!await authService.CanAccessDocumentAsync(userId.Value, documentId))
+        return Results.Forbid();
+
+    var versions = await db.DocumentVersions
+        .Where(v => v.DocumentId == documentId)
+        .OrderByDescending(v => v.VersionNumber)
+        .Select(v => new
+        {
+            v.Id,
+            v.DocumentId,
+            v.VersionNumber,
+            v.Title,
+            v.CreatedBy,
+            v.CreatedAt,
+            v.Comment,
+            v.SnapshotUrl
+        })
+        .ToListAsync();
+
+    return Results.Ok(versions);
+})
+.RequireAuthorization();
+
+app.MapPost("/api/documents/{documentId:long}/versions", async (long documentId, CreateVersionRequest request, HttpContext context, CWFlgmaDbContext db, IAuthorizationService authService) =>
+{
+    var userId = context.GetCurrentUserId();
+    if (userId == null) return Results.Unauthorized();
+
+    // 检查编辑权限
+    if (!await authService.CanEditDocumentAsync(userId.Value, documentId))
+        return Results.Forbid();
+
+    var document = await db.Documents.FindAsync(documentId);
+    if (document == null) return Results.NotFound(new { error = "文档不存在" });
+
+    // 获取当前最大版本号
+    var maxVersion = await db.DocumentVersions
+        .Where(v => v.DocumentId == documentId)
+        .MaxAsync(v => (int?)v.VersionNumber) ?? 0;
+
+    var version = new DocumentVersion
+    {
+        Id = IdGeneratorExtensions.NewId(),
+        DocumentId = documentId,
+        VersionNumber = maxVersion + 1,
+        Title = request.Title ?? document.Title,
+        CreatedBy = userId.Value,
+        CreatedAt = DateTime.UtcNow,
+        Comment = request.Comment,
+        SnapshotUrl = request.SnapshotUrl
+    };
+
+    db.DocumentVersions.Add(version);
+
+    // 更新文档版本号
+    document.Version = version.VersionNumber;
+    document.UpdatedAt = DateTime.UtcNow;
+
+    await db.SaveChangesAsync();
+
+    return Results.Created($"/api/documents/{documentId}/versions/{version.Id}", version);
+})
+.RequireAuthorization();
+
+app.MapGet("/api/documents/{documentId:long}/versions/{versionId:long}", async (long documentId, long versionId, HttpContext context, CWFlgmaDbContext db, IAuthorizationService authService) =>
+{
+    var userId = context.GetCurrentUserId();
+    if (userId == null) return Results.Unauthorized();
+
+    // 检查访问权限
+    if (!await authService.CanAccessDocumentAsync(userId.Value, documentId))
+        return Results.Forbid();
+
+    var version = await db.DocumentVersions
+        .FirstOrDefaultAsync(v => v.Id == versionId && v.DocumentId == documentId);
+
+    if (version == null) return Results.NotFound(new { error = "版本不存在" });
+
+    return Results.Ok(version);
+})
+.RequireAuthorization();
+
+app.MapPost("/api/documents/{documentId:long}/versions/{versionId:long}/restore", async (long documentId, long versionId, HttpContext context, CWFlgmaDbContext db, IAuthorizationService authService) =>
+{
+    var userId = context.GetCurrentUserId();
+    if (userId == null) return Results.Unauthorized();
+
+    // 检查编辑权限
+    if (!await authService.CanEditDocumentAsync(userId.Value, documentId))
+        return Results.Forbid();
+
+    var document = await db.Documents.FindAsync(documentId);
+    if (document == null) return Results.NotFound(new { error = "文档不存在" });
+
+    var version = await db.DocumentVersions
+        .FirstOrDefaultAsync(v => v.Id == versionId && v.DocumentId == documentId);
+
+    if (version == null) return Results.NotFound(new { error = "版本不存在" });
+
+    // 先保存当前状态为新版本
+    var maxVersion = await db.DocumentVersions
+        .Where(v => v.DocumentId == documentId)
+        .MaxAsync(v => (int?)v.VersionNumber) ?? 0;
+
+    var backupVersion = new DocumentVersion
+    {
+        Id = IdGeneratorExtensions.NewId(),
+        DocumentId = documentId,
+        VersionNumber = maxVersion + 1,
+        Title = document.Title,
+        CreatedBy = userId.Value,
+        CreatedAt = DateTime.UtcNow,
+        Comment = $"回滚前自动备份"
+    };
+
+    db.DocumentVersions.Add(backupVersion);
+
+    // 恢复到指定版本
+    if (version.Title != null) document.Title = version.Title;
+    document.Version = backupVersion.VersionNumber + 1;
+    document.UpdatedAt = DateTime.UtcNow;
+
+    await db.SaveChangesAsync();
+
+    return Results.Ok(new
+    {
+        message = $"已回滚到版本 {version.VersionNumber}",
+        newVersion = document.Version,
+        backupVersionId = backupVersion.Id
+    });
+})
+.RequireAuthorization();
+
+app.MapGet("/api/documents/{documentId:long}/versions/compare", async (long documentId, long v1, long v2, HttpContext context, CWFlgmaDbContext db, IAuthorizationService authService) =>
+{
+    var userId = context.GetCurrentUserId();
+    if (userId == null) return Results.Unauthorized();
+
+    // 检查访问权限
+    if (!await authService.CanAccessDocumentAsync(userId.Value, documentId))
+        return Results.Forbid();
+
+    var version1 = await db.DocumentVersions
+        .FirstOrDefaultAsync(v => v.Id == v1 && v.DocumentId == documentId);
+
+    var version2 = await db.DocumentVersions
+        .FirstOrDefaultAsync(v => v.Id == v2 && v.DocumentId == documentId);
+
+    if (version1 == null || version2 == null)
+        return Results.NotFound(new { error = "版本不存在" });
+
+    return Results.Ok(new
+    {
+        Version1 = version1,
+        Version2 = version2,
+        Differences = new
+        {
+            TitleChanged = version1.Title != version2.Title,
+            TimeDiff = (version2.CreatedAt - version1.CreatedAt).ToString()
+        }
+    });
+})
+.RequireAuthorization();
+
 app.Run();
 
 record CreateDocumentRequest(string Title, string? Description, long? TeamId, long? ParentId, string Type, int Width, int Height, string BackgroundColor);
 record UpdateDocumentRequest(string? Title, string? Description, int? Width, int? Height, string? BackgroundColor, bool? IsPublic);
+record CreateVersionRequest(string? Title, string? Comment, string? SnapshotUrl);
