@@ -1,0 +1,194 @@
+@page "/login"
+@using System.Net.Http.Json
+@using Microsoft.JSInterop
+@inject IHttpClientFactory HttpClientFactory
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+<PageTitle>登录 - CWFlgma</PageTitle>
+
+<div class="login-container">
+    <div class="login-card">
+        <div class="login-header">
+            <div class="logo">
+                <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+                    <rect width="48" height="48" rx="12" fill="#7C3AED"/>
+                    <path d="M24 12L32 20V32L24 40L16 32V20L24 12Z" fill="white"/>
+                </svg>
+            </div>
+            <h1>CWFlgma</h1>
+            <p>协作设计平台</p>
+        </div>
+        
+        <div class="form-group">
+            <label for="email">邮箱地址</label>
+            <input id="email" type="email" @bind="email" @bind:event="oninput" 
+                   placeholder="请输入邮箱" class="form-control" />
+        </div>
+        
+        <div class="form-group">
+            <label for="password">密码</label>
+            <input id="password" type="password" @bind="password" @bind:event="oninput" 
+                   placeholder="请输入密码" class="form-control" 
+                   @onkeypress="@(e => { if (e.Key == "Enter") _ = HandleLogin(); })" />
+        </div>
+        
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="alert alert-danger">
+                <span class="alert-icon">⚠</span>
+                @errorMessage
+            </div>
+        }
+        
+        @if (!string.IsNullOrEmpty(debugInfo))
+        {
+            <div class="alert alert-info">
+                <small>@debugInfo</small>
+            </div>
+        }
+        
+        <button class="btn btn-primary w-100" @onclick="HandleLogin" disabled="@isLoading">
+            @if (isLoading)
+            {
+                <span class="spinner"></span>
+                <span>登录中...</span>
+            }
+            else
+            {
+                <span>登录</span>
+            }
+        </button>
+        
+        <div class="divider">
+            <span>测试账号</span>
+        </div>
+        
+        <div class="quick-login">
+            <button class="btn btn-outline" @onclick="QuickLoginAdmin">
+                <span>👨‍💼</span>
+                <span>管理员</span>
+            </button>
+            <button class="btn btn-outline" @onclick="QuickLoginDemo">
+                <span>👤</span>
+                <span>演示用户</span>
+            </button>
+        </div>
+        
+        <div class="login-footer">
+            <a href="/">返回首页</a>
+        </div>
+    </div>
+</div>
+
+@code {
+    private string email = "admin@cwflgma.com";
+    private string password = "Admin@123456";
+    private string? errorMessage;
+    private string? debugInfo;
+    private bool isLoading;
+
+    private async Task HandleLogin()
+    {
+        errorMessage = null;
+        debugInfo = null;
+        isLoading = true;
+        
+        try
+        {
+            debugInfo = "正在连接服务器...";
+            StateHasChanged();
+            
+            var client = HttpClientFactory.CreateClient("UserService");
+            debugInfo = $"请求地址: {client.BaseAddress}api/auth/login";
+            StateHasChanged();
+            
+            var response = await client.PostAsJsonAsync("/api/auth/login", new { email, password });
+            
+            debugInfo = $"响应状态: {response.StatusCode}";
+            StateHasChanged();
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var content = await response.Content.ReadAsStringAsync();
+                debugInfo = $"响应内容: {content.Substring(0, Math.Min(100, content.Length))}...";
+                StateHasChanged();
+                
+                var result = await response.Content.ReadFromJsonAsync<LoginResponse>();
+                
+                if (result?.Success == true && !string.IsNullOrEmpty(result.AccessToken))
+                {
+                    // 保存 token 到 localStorage
+                    await JSRuntime.InvokeVoidAsync("localStorage.setItem", "authToken", result.AccessToken);
+                    await JSRuntime.InvokeVoidAsync("localStorage.setItem", "user", 
+                        System.Text.Json.JsonSerializer.Serialize(result.User));
+                    
+                    debugInfo = "登录成功，正在跳转...";
+                    StateHasChanged();
+                    
+                    await Task.Delay(500);
+                    Navigation.NavigateTo("/documents", forceLoad: true);
+                }
+                else
+                {
+                    errorMessage = result?.ErrorMessage ?? "登录失败，请检查账号密码";
+                }
+            }
+            else
+            {
+                var errorContent = await response.Content.ReadAsStringAsync();
+                errorMessage = $"登录失败: {response.StatusCode} - {errorContent}";
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            errorMessage = $"网络错误: {ex.Message}";
+            debugInfo = "请检查服务是否正常运行";
+        }
+        catch (TaskCanceledException)
+        {
+            errorMessage = "请求超时，请稍后重试";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"登录失败: {ex.Message}";
+            debugInfo = ex.StackTrace?.Substring(0, Math.Min(200, ex.StackTrace.Length));
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+    
+    private void QuickLoginAdmin()
+    {
+        email = "admin@cwflgma.com";
+        password = "Admin@123456";
+        StateHasChanged();
+    }
+    
+    private void QuickLoginDemo()
+    {
+        email = "demo@cwflgma.com";
+        password = "Demo@123456";
+        StateHasChanged();
+    }
+    
+    private class LoginResponse
+    {
+        public bool Success { get; set; }
+        public string? AccessToken { get; set; }
+        public string? RefreshToken { get; set; }
+        public UserInfo? User { get; set; }
+        public string? ErrorMessage { get; set; }
+    }
+    
+    private class UserInfo
+    {
+        public long Id { get; set; }
+        public string? Username { get; set; }
+        public string? Email { get; set; }
+        public string? DisplayName { get; set; }
+    }
+}

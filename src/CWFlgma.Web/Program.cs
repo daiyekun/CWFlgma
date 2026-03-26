@@ -12,28 +12,39 @@ builder.Services.AddRazorComponents()
 
 builder.Services.AddOutputCache();
 
+// 配置 HttpClient 指向各个微服务
+builder.Services.AddHttpClient("UserService", client =>
+{
+    client.BaseAddress = new("https+http://userservice");
+});
+
+builder.Services.AddHttpClient("DocumentService", client =>
+{
+    client.BaseAddress = new("https+http://documentservice");
+});
+
+builder.Services.AddHttpClient("CollaborationService", client =>
+{
+    client.BaseAddress = new("https+http://collaborationservice");
+});
+
+// 保留原有的 WeatherApiClient（如果需要）
 builder.Services.AddHttpClient<WeatherApiClient>(client =>
-    {
-        // This URL uses "https+http://" to indicate HTTPS is preferred over HTTP.
-        // Learn more about service discovery scheme resolution at https://aka.ms/dotnet/sdschemes.
-        client.BaseAddress = new("https+http://apiservice");
-    });
+{
+    client.BaseAddress = new("https+http://apiservice");
+});
 
 var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
 {
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
-    // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
 }
 
 app.UseHttpsRedirection();
-
 app.UseAntiforgery();
-
 app.UseOutputCache();
-
 app.MapStaticAssets();
 
 app.MapRazorComponents<App>()

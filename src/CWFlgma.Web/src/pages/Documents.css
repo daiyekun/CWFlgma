@@ -1,0 +1,144 @@
+.documents-page {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.page-header h1 {
+  font-size: 28px;
+}
+
+.error-message {
+  background: #fee;
+  color: var(--danger-color);
+  padding: 12px;
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+
+.create-form {
+  margin-bottom: 24px;
+}
+
+.create-form h3 {
+  margin-bottom: 16px;
+}
+
+.form-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.documents-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.document-card {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.document-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+}
+
+.document-thumbnail {
+  height: 150px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.document-type {
+  background: rgba(0, 0, 0, 0.1);
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.document-info {
+  padding: 16px;
+  flex: 1;
+}
+
+.document-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-color);
+  display: block;
+  margin-bottom: 8px;
+}
+
+.document-title:hover {
+  color: var(--primary-color);
+  text-decoration: none;
+}
+
+.document-meta {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.permission-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.permission-badge.owner {
+  background: #e3f2fd;
+  color: #1976d2;
+}
+
+.permission-badge.edit {
+  background: #e8f5e9;
+  color: #388e3c;
+}
+
+.permission-badge.view {
+  background: #fff3e0;
+  color: #f57c00;
+}
+
+.document-actions {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  gap: 10px;
+}
+
+.document-actions button,
+.document-actions a {
+  flex: 1;
+  text-align: center;
+  text-decoration: none;
+}
+
+.empty-state {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+}
+
+.empty-state p:first-child {
+  font-size: 18px;
+  margin-bottom: 8px;
+}

@@ -49,4 +49,12 @@ var gateway = builder.AddProject<Projects.CWFlgma_Gateway>("gateway")
     .WithReference(collaborationService)
     .WithReference(resourceService);
 
+// 添加前端 Web 应用
+var webApp = builder.AddProject<Projects.CWFlgma_Web>("webfrontend")
+    .WithExternalHttpEndpoints()
+    .WithReference(userService)
+    .WithReference(documentService)
+    .WithReference(collaborationService)
+    .WithReference(gateway);
+
 builder.Build().Run();

@@ -1,0 +1,432 @@
+@page "/teams"
+@using System.Net.Http.Json
+@using Microsoft.JSInterop
+@inject IHttpClientFactory HttpClientFactory
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
+
+<PageTitle>团队 - CWFlgma</PageTitle>
+
+<div class="teams-page">
+    <div class="teams-sidebar">
+        <div class="sidebar-header">
+            <h2>团队</h2>
+            <button class="btn btn-primary btn-sm" @onclick="() => showCreateForm = true">
+                <span>+</span>
+                <span>新建</span>
+            </button>
+        </div>
+        
+        @if (showCreateForm)
+        {
+            <div class="create-form">
+                <input type="text" @bind="newTeamName" placeholder="团队名称" class="form-control" />
+                <input type="text" @bind="newTeamDesc" placeholder="团队描述（可选）" class="form-control" />
+                <div class="form-actions">
+                    <button class="btn btn-primary btn-sm" @onclick="CreateTeam">创建</button>
+                    <button class="btn btn-secondary btn-sm" @onclick="() => showCreateForm = false">取消</button>
+                </div>
+            </div>
+        }
+        
+        <div class="teams-list">
+            @if (isLoadingTeams)
+            {
+                <div class="loading-small">
+                    <div class="spinner"></div>
+                    <span>加载中...</span>
+                </div>
+            }
+            else if (teams.Count == 0)
+            {
+                <div class="empty-teams">
+                    <p>暂无团队</p>
+                    <small>创建团队开始协作</small>
+                </div>
+            }
+            else
+            {
+                @foreach (var team in teams)
+                {
+                    <div class="team-item @(selectedTeam?.Id == team.Id ? "active" : "")" 
+                         @onclick="() => SelectTeam(team)">
+                        <div class="team-icon" style="background: @GetTeamColor(team.Name)">
+                            @team.Name.Substring(0, 1).ToUpper()
+                        </div>
+                        <div class="team-info">
+                            <strong>@team.Name</strong>
+                            <small>@(team.MemberCount ?? 0) 成员</small>
+                        </div>
+                    </div>
+                }
+            }
+        </div>
+    </div>
+    
+    <div class="teams-content">
+        @if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <div class="alert alert-danger">
+                <span>⚠</span>
+                <span>@errorMessage</span>
+                <button class="alert-close" @onclick="() => errorMessage = null">×</button>
+            </div>
+        }
+        
+        @if (selectedTeam != null)
+        {
+            <div class="team-header">
+                <div class="team-header-info">
+                    <div class="team-avatar" style="background: @GetTeamColor(selectedTeam.Name)">
+                        @selectedTeam.Name.Substring(0, 1).ToUpper()
+                    </div>
+                    <div>
+                        <h1>@selectedTeam.Name</h1>
+                        @if (!string.IsNullOrEmpty(selectedTeam.Description))
+                        {
+                            <p class="team-description">@selectedTeam.Description</p>
+                        }
+                    </div>
+                </div>
+                <div class="team-actions">
+                    <button class="btn btn-primary" @onclick="() => showAddMemberForm = true">
+                        <span>+</span>
+                        <span>添加成员</span>
+                    </button>
+                    <button class="btn btn-danger" @onclick="() => DeleteTeam(selectedTeam.Id)">
+                        删除团队
+                    </button>
+                </div>
+            </div>
+            
+            @if (showAddMemberForm)
+            {
+                <div class="add-member-card">
+                    <h3>添加成员</h3>
+                    <div class="form-row">
+                        <input type="email" @bind="memberEmail" placeholder="输入成员邮箱地址" class="form-control" />
+                        <select @bind="memberRole" class="form-control select-role">
+                            <option value="member">成员</option>
+                            <option value="admin">管理员</option>
+                        </select>
+                        <button class="btn btn-primary" @onclick="AddMember">添加</button>
+                        <button class="btn btn-secondary" @onclick="() => showAddMemberForm = false">取消</button>
+                    </div>
+                </div>
+            }
+            
+            <div class="members-section">
+                <h3>成员列表 <span class="member-count">@members.Count</span></h3>
+                <div class="members-list">
+                    @if (isLoadingMembers)
+                    {
+                        <div class="loading-small">
+                            <div class="spinner"></div>
+                            <span>加载成员中...</span>
+                        </div>
+                    }
+                    else
+                    {
+                        @foreach (var member in members)
+                        {
+                            <div class="member-card">
+                                <div class="member-avatar">
+                                    @GetInitial(member.DisplayName ?? member.Username)
+                                </div>
+                                <div class="member-info">
+                                    <strong>@(member.DisplayName ?? member.Username ?? $"用户 {member.UserId}")</strong>
+                                    <small>@member.Email</small>
+                                </div>
+                                <span class="role-badge @member.Role">@GetRoleText(member.Role)</span>
+                                @if (member.Role != "owner")
+                                {
+                                    <button class="btn btn-icon btn-danger-icon" title="移除" 
+                                            @onclick="() => RemoveMember(member.UserId)">
+                                        🗑
+                                    </button>
+                                }
+                            </div>
+                        }
+                    }
+                </div>
+            </div>
+        }
+        else
+        {
+            <div class="no-selection">
+                <div class="no-selection-icon">👥</div>
+                <h3>选择一个团队</h3>
+                <p>从左侧列表选择团队查看详情</p>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<TeamDto> teams = new();
+    private TeamDto? selectedTeam;
+    private List<MemberDto> members = new();
+    private bool isLoadingTeams = true;
+    private bool isLoadingMembers;
+    private bool showCreateForm;
+    private bool showAddMemberForm;
+    private string? errorMessage;
+    private string newTeamName = "";
+    private string newTeamDesc = "";
+    private string memberEmail = "";
+    private string memberRole = "member";
+
+    private readonly string[] teamColors = {
+        "#7C3AED", "#2563EB", "#0891B2", "#059669", 
+        "#D97706", "#DC2626", "#DB2777", "#7C3AED"
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CheckAuthAndLoadTeams();
+    }
+
+    private async Task CheckAuthAndLoadTeams()
+    {
+        try
+        {
+            var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "authToken");
+            if (string.IsNullOrEmpty(token))
+            {
+                Navigation.NavigateTo("/login");
+                return;
+            }
+            
+            await LoadTeams(token);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"初始化失败: {ex.Message}";
+        }
+    }
+
+    private async Task LoadTeams(string token)
+    {
+        isLoadingTeams = true;
+        StateHasChanged();
+        
+        try
+        {
+            var client = HttpClientFactory.CreateClient("UserService");
+            client.DefaultRequestHeaders.Authorization = 
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            
+            var response = await client.GetAsync("/api/teams");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<List<TeamDto>>();
+                teams = result ?? new();
+            }
+            else
+            {
+                errorMessage = $"加载团队失败: {response.StatusCode}";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"加载团队失败: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingTeams = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SelectTeam(TeamDto team)
+    {
+        selectedTeam = team;
+        await LoadMembers(team.Id);
+    }
+
+    private async Task LoadMembers(long teamId)
+    {
+        isLoadingMembers = true;
+        StateHasChanged();
+        
+        try
+        {
+            var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "authToken");
+            var client = HttpClientFactory.CreateClient("UserService");
+            client.DefaultRequestHeaders.Authorization = 
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            
+            var response = await client.GetAsync($"/api/teams/{teamId}/members");
+            
+            if (response.IsSuccessStatusCode)
+            {
+                var result = await response.Content.ReadFromJsonAsync<List<MemberDto>>();
+                members = result ?? new();
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"加载成员失败: {ex.Message}";
+        }
+        finally
+        {
+            isLoadingMembers = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task CreateTeam()
+    {
+        if (string.IsNullOrWhiteSpace(newTeamName))
+        {
+            errorMessage = "请输入团队名称";
+            return;
+        }
+
+        try
+        {
+            var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "authToken");
+            var client = HttpClientFactory.CreateClient("UserService");
+            client.DefaultRequestHeaders.Authorization = 
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            
+            var response = await client.PostAsJsonAsync("/api/teams", 
+                new { name = newTeamName, description = newTeamDesc });
+            
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadTeams(token);
+                showCreateForm = false;
+                newTeamName = "";
+                newTeamDesc = "";
+            }
+            else
+            {
+                errorMessage = "创建团队失败";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"创建失败: {ex.Message}";
+        }
+    }
+
+    private async Task DeleteTeam(long id)
+    {
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", "确定要删除这个团队吗？")) 
+            return;
+
+        try
+        {
+            var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "authToken");
+            var client = HttpClientFactory.CreateClient("UserService");
+            client.DefaultRequestHeaders.Authorization = 
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            
+            await client.DeleteAsync($"/api/teams/{id}");
+            await LoadTeams(token);
+            selectedTeam = null;
+            members.Clear();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"删除失败: {ex.Message}";
+        }
+    }
+
+    private async Task AddMember()
+    {
+        if (selectedTeam == null || string.IsNullOrWhiteSpace(memberEmail))
+        {
+            errorMessage = "请输入成员邮箱";
+            return;
+        }
+
+        try
+        {
+            var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "authToken");
+            var client = HttpClientFactory.CreateClient("UserService");
+            client.DefaultRequestHeaders.Authorization = 
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            
+            var response = await client.PostAsJsonAsync($"/api/teams/{selectedTeam.Id}/members", 
+                new { email = memberEmail, role = memberRole });
+            
+            if (response.IsSuccessStatusCode)
+            {
+                await LoadMembers(selectedTeam.Id);
+                showAddMemberForm = false;
+                memberEmail = "";
+            }
+            else
+            {
+                errorMessage = "添加成员失败";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"添加失败: {ex.Message}";
+        }
+    }
+
+    private async Task RemoveMember(long userId)
+    {
+        if (selectedTeam == null) return;
+        if (!await JSRuntime.InvokeAsync<bool>("confirm", "确定要移除这个成员吗？")) 
+            return;
+
+        try
+        {
+            var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "authToken");
+            var client = HttpClientFactory.CreateClient("UserService");
+            client.DefaultRequestHeaders.Authorization = 
+                new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            
+            await client.DeleteAsync($"/api/teams/{selectedTeam.Id}/members/{userId}");
+            await LoadMembers(selectedTeam.Id);
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"移除失败: {ex.Message}";
+        }
+    }
+
+    private string GetTeamColor(string name)
+    {
+        var hash = name.GetHashCode();
+        return teamColors[Math.Abs(hash) % teamColors.Length];
+    }
+
+    private string GetInitial(string? name)
+    {
+        if (string.IsNullOrEmpty(name)) return "U";
+        return name.Substring(0, 1).ToUpper();
+    }
+
+    private string GetRoleText(string role) => role switch
+    {
+        "owner" => "所有者",
+        "admin" => "管理员",
+        "member" => "成员",
+        _ => role
+    };
+
+    private class TeamDto
+    {
+        public long Id { get; set; }
+        public string Name { get; set; } = "";
+        public string? Description { get; set; }
+        public int? MemberCount { get; set; }
+    }
+
+    private class MemberDto
+    {
+        public long Id { get; set; }
+        public long UserId { get; set; }
+        public string? Username { get; set; }
+        public string? DisplayName { get; set; }
+        public string? Email { get; set; }
+        public string Role { get; set; } = "";
+    }
+}

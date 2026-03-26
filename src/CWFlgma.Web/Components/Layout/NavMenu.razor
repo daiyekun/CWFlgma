@@ -1,29 +1,15 @@
-﻿<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        <a class="navbar-brand" href="">CWFlgma</a>
+﻿<nav class="navbar">
+    <div class="navbar-brand">
+        <a href="">CWFlgma</a>
     </div>
-</div>
-
-<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
-
-<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
-    <nav class="nav flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill" aria-hidden="true"></span> Home
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="counter">
-                <span class="bi bi-plus-square-fill" aria-hidden="true"></span> Counter
-            </NavLink>
-        </div>
-
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="weather">
-                <span class="bi bi-list-nested" aria-hidden="true"></span> Weather
-            </NavLink>
-        </div>
-    </nav>
-</div>
+    
+    <div class="navbar-links">
+        <NavLink href="" Match="NavLinkMatch.All" class="nav-link">首页</NavLink>
+        <NavLink href="documents" class="nav-link">文档</NavLink>
+        <NavLink href="teams" class="nav-link">团队</NavLink>
+    </div>
+    
+    <div class="navbar-actions">
+        <a href="login" class="btn-login">登录</a>
+    </div>
+</nav>

@@ -1,7 +1,150 @@
-﻿@page "/"
+@page "/"
+@using Microsoft.JSInterop
+@inject NavigationManager Navigation
+@inject IJSRuntime JSRuntime
 
-<PageTitle>Home</PageTitle>
+<PageTitle>CWFlgma - 协作设计平台</PageTitle>
 
-<h1>Hello, world!</h1>
+<div class="home-page">
+    <section class="hero">
+        <div class="hero-content">
+            <div class="hero-badge">✨ 全新协作体验</div>
+            <h1>让设计<span class="highlight">协作</span>更简单</h1>
+            <p class="hero-subtitle">CWFlgma 是一款强大的实时协作设计工具，支持多人同时编辑、版本管理和团队协作</p>
+            <div class="hero-actions">
+                <button class="btn btn-primary btn-lg" @onclick="StartDesign">
+                    <span>开始设计</span>
+                    <span>→</span>
+                </button>
+                <button class="btn btn-outline btn-lg" @onclick="ViewDemo">
+                    <span>观看演示</span>
+                </button>
+            </div>
+            <div class="hero-stats">
+                <div class="stat">
+                    <span class="stat-value">10K+</span>
+                    <span class="stat-label">活跃用户</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-value">50K+</span>
+                    <span class="stat-label">设计文件</span>
+                </div>
+                <div class="stat">
+                    <span class="stat-value">99.9%</span>
+                    <span class="stat-label">可用性</span>
+                </div>
+            </div>
+        </div>
+        <div class="hero-visual">
+            <div class="preview-card">
+                <div class="preview-header">
+                    <div class="preview-dots">
+                        <span></span><span></span><span></span>
+                    </div>
+                    <span>CWFlgma 设计界面</span>
+                </div>
+                <div class="preview-content">
+                    <div class="preview-shape shape-1"></div>
+                    <div class="preview-shape shape-2"></div>
+                    <div class="preview-shape shape-3"></div>
+                    <div class="preview-cursor cursor-1">👤</div>
+                    <div class="preview-cursor cursor-2">👤</div>
+                </div>
+            </div>
+        </div>
+    </section>
 
-Welcome to your new app.
+    <section class="features">
+        <div class="section-header">
+            <h2>强大功能，助力设计</h2>
+            <p>从原型设计到高保真界面，一站搞定</p>
+        </div>
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon" style="background: linear-gradient(135deg, #7C3AED 0%, #5B21B6 100%);">
+                    <span>📄</span>
+                </div>
+                <h3>智能文档管理</h3>
+                <p>轻松创建和管理设计文档，支持版本历史和一键回滚</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon" style="background: linear-gradient(135deg, #2563EB 0%, #1D4ED8 100%);">
+                    <span>👥</span>
+                </div>
+                <h3>实时多人协作</h3>
+                <p>团队成员同时在线编辑，光标实时同步，沟通零距离</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon" style="background: linear-gradient(135deg, #059669 0%, #047857 100%);">
+                    <span>🔒</span>
+                </div>
+                <h3>精细权限控制</h3>
+                <p>灵活的权限管理，保护您的设计资产安全</p>
+            </div>
+            <div class="feature-card">
+                <div class="feature-icon" style="background: linear-gradient(135deg, #D97706 0%, #B45309 100%);">
+                    <span>🏢</span>
+                </div>
+                <h3>团队空间</h3>
+                <p>创建团队，邀请成员，高效协作，统一管理</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="cta">
+        <div class="cta-content">
+            <h2>准备好开始了吗？</h2>
+            <p>立即登录，体验强大的设计协作功能</p>
+            <div class="cta-actions">
+                <a href="/login" class="btn btn-primary btn-lg">立即登录</a>
+                <a href="/documents" class="btn btn-outline btn-lg">浏览文档</a>
+            </div>
+        </div>
+    </section>
+
+    <section class="quick-links">
+        <h3>快速入口</h3>
+        <div class="links-grid">
+            <a href="/documents" class="link-card">
+                <span class="link-icon">📁</span>
+                <span class="link-text">我的文档</span>
+                <span class="link-arrow">→</span>
+            </a>
+            <a href="/teams" class="link-card">
+                <span class="link-icon">👥</span>
+                <span class="link-text">团队管理</span>
+                <span class="link-arrow">→</span>
+            </a>
+            <a href="https://localhost:7108/permission-test.html" target="_blank" class="link-card">
+                <span class="link-icon">🔑</span>
+                <span class="link-text">权限测试</span>
+                <span class="link-arrow">↗</span>
+            </a>
+            <a href="https://localhost:7184/version-test.html" target="_blank" class="link-card">
+                <span class="link-icon">📝</span>
+                <span class="link-text">版本测试</span>
+                <span class="link-arrow">↗</span>
+            </a>
+        </div>
+    </section>
+</div>
+
+@code {
+    private async Task StartDesign()
+    {
+        var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "authToken");
+        if (!string.IsNullOrEmpty(token))
+        {
+            Navigation.NavigateTo("/documents");
+        }
+        else
+        {
+            Navigation.NavigateTo("/login");
+        }
+    }
+
+    private void ViewDemo()
+    {
+        Navigation.NavigateTo("/login");
+    }
+}
