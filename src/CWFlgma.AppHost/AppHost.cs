@@ -19,7 +19,7 @@ var seeder = builder.AddProject<Projects.CWFlgma_Seeder>("seeder")
     .WithReference(postgres)
     .WithReference(mongodb);
 
-// 添加微服务
+// 添加微服务 - Aspire 会自动注入 OTLP 环境变量
 var userService = builder.AddProject<Projects.CWFlgma_UserService>("userservice")
     .WithReference(postgres)
     .WithReference(redis);

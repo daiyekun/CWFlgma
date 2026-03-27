@@ -1,12 +1,32 @@
+using CWFlgma.CollaborationService.Hubs;
+using CWFlgma.Infrastructure;
+using CWFlgma.Infrastructure.MongoDB.Documents;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using MongoDB.Driver;
-using CWFlgma.Infrastructure;
-using CWFlgma.Infrastructure.MongoDB.Documents;
-using CWFlgma.CollaborationService.Hubs;
+using OpenTelemetry;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using System.Drawing;
+
+var serviceName = Environment.GetEnvironmentVariable("OTEL_SERVICE_NAME") ?? nameof(CWFlgma.CollaborationService);
+var otlpEndpoint = Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT") ?? "http://localhost:4317";
+
+var resource = ResourceBuilder.CreateDefault()
+    .AddService(serviceName);
+
+// Setup tracing with resource
+Sdk.CreateTracerProviderBuilder()
+    .SetResourceBuilder(resource)
+    .AddSource(nameof(CWFlgma.CollaborationService))
+    .AddOtlpExporter(options => options.Endpoint = new Uri(otlpEndpoint))
+    .Build();
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Add Aspire service defaults (includes OpenTelemetry, health checks, etc.)
+builder.AddServiceDefaults();
 
 // Add services to the container
 builder.Services.AddOpenApi();
@@ -23,14 +43,15 @@ builder.Services.AddSignalR(options =>
     options.KeepAliveInterval = TimeSpan.FromSeconds(15);
 });
 
-// 添加 CORS
+// 添加 CORS - 需要允许 credentials 以支持 WebSocket
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
-        policy.AllowAnyOrigin()
+        policy.WithOrigins("https://localhost:7255", "http://localhost:7255", "https://localhost:3000", "http://localhost:3000")
               .AllowAnyHeader()
-              .AllowAnyMethod();
+              .AllowAnyMethod()
+              .AllowCredentials();  // 必须允许 credentials 以支持 WebSocket
     });
 });
 

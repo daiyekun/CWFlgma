@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\Shared\CWFlgma.Infrastructure\CWFlgma.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\CWFlgma.ServiceDefaults\CWFlgma.ServiceDefaults.csproj" />
   </ItemGroup>
 
 </Project>

@@ -5,7 +5,9 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.ServiceDiscovery;
 using OpenTelemetry;
+using OpenTelemetry.Exporter;
 using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using System.Diagnostics;
 
@@ -44,26 +46,33 @@ public static class Extensions
             logging.IncludeScopes = true;
         });
 
+        // 获取服务名称和 OTLP endpoint
+        var serviceName = builder.Environment.ApplicationName;
+        var otlpEndpoint = builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"] 
+            ?? builder.Configuration["ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL"]
+            ?? "https://localhost:21077";  // Aspire Dashboard 默认端口
+
+        Console.WriteLine($"[OpenTelemetry] Service: {serviceName}");
+        Console.WriteLine($"[OpenTelemetry] OTLP Endpoint: {otlpEndpoint}");
+
+        // 创建 Resource
+        var resource = ResourceBuilder.CreateDefault()
+            .AddService(serviceName);
+
+        // 配置 Tracing
         builder.Services.AddOpenTelemetry()
-            .WithMetrics(metrics =>
-            {
-                metrics
-                    .AddAspNetCoreInstrumentation()
-                    .AddHttpClientInstrumentation()
-                    .AddRuntimeInstrumentation()
-                    .AddMeter("Microsoft.AspNetCore.Hosting")
-                    .AddMeter("Microsoft.AspNetCore.Server.Kestrel")
-                    .AddMeter("System.Net.Http")
-                    .AddMeter("System.Net.NameResolution");
-            })
             .WithTracing(tracing =>
             {
                 tracing
+                    .SetResourceBuilder(resource)
+                    .AddSource("CWFlgma")
+                    .AddSource("CWFlgma.UserService")
+                    .AddSource("userservice")
+                    .AddSource("CWFlgma.DocumentService")
+                    .AddSource("documentservice")
+                    .AddSource("CWFlgma.CollaborationService")
+                    .AddSource("collaborationservice")
                     .AddSource(builder.Environment.ApplicationName)
-                    .AddSource("CWFlgma")  // 自定义 ActivitySource
-                    .AddSource("Npgsql")   // PostgreSQL
-                    .AddSource("MongoDB.Driver.Core")  // MongoDB
-                    .AddSource("StackExchange.Redis")  // Redis
                     .AddAspNetCoreInstrumentation(options =>
                     {
                         options.Filter = context =>
@@ -71,45 +80,29 @@ public static class Extensions
                             && !context.Request.Path.StartsWithSegments(AlivenessEndpointPath)
                             && !context.Request.Path.StartsWithSegments("/_framework");
                         options.RecordException = true;
-                        options.EnrichWithHttpRequest = (activity, request) =>
-                        {
-                            activity.SetTag("http.request.header.host", request.Host.ToString());
-                        };
-                        options.EnrichWithHttpResponse = (activity, response) =>
-                        {
-                            activity.SetTag("http.response.status_code", response.StatusCode);
-                        };
                     })
-                    .AddHttpClientInstrumentation(options =>
-                    {
-                        options.FilterHttpRequestMessage = (request) =>
-                        {
-                            return !request.RequestUri?.ToString().Contains("/health") ?? true;
-                        };
-                    })
+                    .AddHttpClientInstrumentation()
                     .AddEntityFrameworkCoreInstrumentation(options =>
                     {
                         options.SetDbStatementForText = true;
-                        options.EnrichWithIDbCommand = (activity, command) =>
-                        {
-                            activity.SetTag("db.statement", command.CommandText);
-                        };
+                    })
+                    .AddOtlpExporter(options =>
+                    {
+                        options.Endpoint = new Uri(otlpEndpoint);
+                    });
+            })
+            .WithMetrics(metrics =>
+            {
+                metrics
+                    .SetResourceBuilder(resource)
+                    .AddAspNetCoreInstrumentation()
+                    .AddHttpClientInstrumentation()
+                    .AddRuntimeInstrumentation()
+                    .AddOtlpExporter(options =>
+                    {
+                        options.Endpoint = new Uri(otlpEndpoint);
                     });
             });
-
-        builder.AddOpenTelemetryExporters();
-
-        return builder;
-    }
-
-    private static TBuilder AddOpenTelemetryExporters<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
-    {
-        var useOtlpExporter = !string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]);
-
-        if (useOtlpExporter)
-        {
-            builder.Services.AddOpenTelemetry().UseOtlpExporter();
-        }
 
         return builder;
     }

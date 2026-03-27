@@ -518,4 +518,42 @@ public class CollaborationHub : Hub
         
         _sessionMap.TryRemove(sessionId, out _);
     }
+
+    /// <summary>
+    /// 广播形状数据给其他用户
+    /// </summary>
+    public async Task BroadcastShapes(string documentId, string shapesJson)
+    {
+        var sessionId = Context.ConnectionId;
+        
+        // 获取文档状态
+        if (_documentStates.TryGetValue(documentId, out var docState))
+        {
+            // 更新最后活动时间
+            if (docState.Users.TryGetValue(sessionId, out var user))
+            {
+                user.LastActivity = DateTime.UtcNow;
+            }
+        }
+
+        // 广播给同一文档组的其他用户（不包括发送者）
+        await Clients.OthersInGroup(documentId).SendAsync("ShapesUpdated", shapesJson);
+        
+        _logger.LogInformation("[BroadcastShapes] Document: {DocumentId}, Session: {SessionId}, Data length: {Length}", 
+            documentId, sessionId, shapesJson.Length);
+    }
+
+    /// <summary>
+    /// 广播操作给其他用户
+    /// </summary>
+    public async Task BroadcastOperation(string documentId, EditOperation operation)
+    {
+        var sessionId = Context.ConnectionId;
+        
+        // 广播给同一文档组的其他用户
+        await Clients.OthersInGroup(documentId).SendAsync("OperationReceived", operation);
+        
+        _logger.LogInformation("[BroadcastOperation] Document: {DocumentId}, Type: {Type}, Layer: {LayerId}", 
+            documentId, operation.Type, operation.LayerId);
+    }
 }

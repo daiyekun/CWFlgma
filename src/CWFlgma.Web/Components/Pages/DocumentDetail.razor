@@ -253,13 +253,61 @@ else
                 myUsername = user.GetProperty("username").GetString() ?? "User";
             }
 
+            Console.WriteLine($"[SignalR] 正在连接到协作服务...");
+            Console.WriteLine($"[SignalR] Token: {token?.Substring(0, Math.Min(20, token?.Length ?? 0))}...");
+            Console.WriteLine($"[SignalR] User: {myUsername} (ID: {myUserId})");
+
             hubConnection = new HubConnectionBuilder()
                 .WithUrl("https://localhost:7165/hubs/collaboration", options =>
                 {
                     options.AccessTokenProvider = () => Task.FromResult(token);
+                    options.SkipNegotiation = false;  // 允许协商
+                    options.Transports = Microsoft.AspNetCore.Http.Connections.HttpTransportType.WebSockets | 
+                                        Microsoft.AspNetCore.Http.Connections.HttpTransportType.LongPolling;
+                    // 忽略 SSL 证书验证（仅用于开发环境）
+                    options.HttpMessageHandlerFactory = (message) =>
+                    {
+                        if (message is HttpClientHandler clientHandler)
+                        {
+                            clientHandler.ServerCertificateCustomValidationCallback = 
+                                (sender, certificate, chain, sslPolicyErrors) => true;
+                        }
+                        return message;
+                    };
                 })
-                .WithAutomaticReconnect()
+                .WithAutomaticReconnect(new[] { TimeSpan.Zero, TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10) })
+                .ConfigureLogging(logging =>
+                {
+                    logging.SetMinimumLevel(LogLevel.Information);
+                })
                 .Build();
+
+            // 连接状态变化
+            hubConnection.Closed += (error) =>
+            {
+                Console.WriteLine($"[SignalR] 连接关闭: {error?.Message ?? "正常关闭"}");
+                InvokeAsync(StateHasChanged);
+                return Task.CompletedTask;
+            };
+
+            hubConnection.Reconnecting += (error) =>
+            {
+                Console.WriteLine($"[SignalR] 正在重连...");
+                InvokeAsync(StateHasChanged);
+                return Task.CompletedTask;
+            };
+
+            hubConnection.Reconnected += (connectionId) =>
+            {
+                Console.WriteLine($"[SignalR] 重连成功: {connectionId}");
+                // 重新加入文档
+                if (isInDocument)
+                {
+                    _ = hubConnection.InvokeAsync("JoinDocument", Id.ToString(), myUserId, myUsername, myUsername, null);
+                }
+                InvokeAsync(StateHasChanged);
+                return Task.CompletedTask;
+            };
 
             // 用户加入
             hubConnection.On<OnlineUser>("UserJoined", user =>
@@ -314,15 +362,25 @@ else
 
             await hubConnection.StartAsync();
             mySessionId = hubConnection.ConnectionId;
+            isInDocument = true;
+
+            Console.WriteLine($"[SignalR] 连接成功! SessionId: {mySessionId}");
+            Console.WriteLine($"[SignalR] 连接状态: {hubConnection.State}");
 
             // 加入文档房间
             await hubConnection.InvokeAsync("JoinDocument", Id.ToString(), myUserId, myUsername, myUsername, null);
+            Console.WriteLine($"[SignalR] 已加入文档 {Id}");
+            
+            InvokeAsync(StateHasChanged);
         }
         catch (Exception ex)
         {
-            Console.WriteLine("SignalR 连接失败: " + ex.Message);
+            Console.WriteLine($"[SignalR] 连接失败: {ex.Message}");
+            Console.WriteLine($"[SignalR] 异常详情: {ex}");
         }
     }
+
+    bool isInDocument = false;
 
     // 广播变更给其他用户
     async Task BroadcastChange()

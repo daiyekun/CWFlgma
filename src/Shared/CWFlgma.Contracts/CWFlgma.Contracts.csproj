@@ -5,5 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+	<ItemGroup>
+		<PackageReference Include="OpenTelemetry" Version="1.14.0" />
+	</ItemGroup>
 
 </Project>

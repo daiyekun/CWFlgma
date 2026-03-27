@@ -1,17 +1,39 @@
-using Microsoft.AspNetCore.Builder;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using CWFlgma.Infrastructure;
 using CWFlgma.Infrastructure.Authentication;
 using CWFlgma.Infrastructure.Authorization;
+using CWFlgma.Infrastructure.Common;
 using CWFlgma.Infrastructure.PostgreSQL;
 using CWFlgma.Infrastructure.PostgreSQL.Entities;
-using CWFlgma.Infrastructure.Common;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using OpenTelemetry;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+var serviceName = Environment.GetEnvironmentVariable("OTEL_SERVICE_NAME") ?? "CWFlgma.DocumentService";//nameof(CWFlgma.UserService);
+var otlpEndpoint = Environment.GetEnvironmentVariable("OTEL_EXPORTER_OTLP_ENDPOINT") ?? "http://localhost:4317";
+
+var resource = ResourceBuilder.CreateDefault()
+    .AddService(serviceName);
+
+// Setup tracing with resource
+Sdk.CreateTracerProviderBuilder()
+    .SetResourceBuilder(resource)
+    .AddSource("CWFlgma.DocumentService")
+    .AddOtlpExporter(options => options.Endpoint = new Uri(otlpEndpoint))
+    .Build();
+
+// 添加 using 以支持 AddServiceDefaults 扩展方法
+var _ = typeof(Microsoft.Extensions.Hosting.Extensions);
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Add Aspire service defaults (includes OpenTelemetry, health checks, etc.)
+builder.AddServiceDefaults();
 
 // Add services to the container
 builder.Services.AddOpenApi();

@@ -7,11 +7,16 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="nul" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.1" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\..\Shared\CWFlgma.Infrastructure\CWFlgma.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\CWFlgma.ServiceDefaults\CWFlgma.ServiceDefaults.csproj" />
   </ItemGroup>
 
 </Project>
