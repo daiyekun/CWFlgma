@@ -312,9 +312,11 @@ else
             // 用户加入
             hubConnection.On<OnlineUser>("UserJoined", user =>
             {
+                Console.WriteLine($"[SignalR] 用户加入: {user.Username} (Session: {user.SessionId})");
                 if (!onlineUsers.Any(u => u.SessionId == user.SessionId))
                 {
                     onlineUsers.Add(user);
+                    Console.WriteLine($"[SignalR] 当前在线用户数: {onlineUsers.Count}");
                     InvokeAsync(StateHasChanged);
                 }
             });
@@ -327,10 +329,29 @@ else
             });
 
             // 文档状态
-            hubConnection.On<List<OnlineUser>>("DocumentState", users =>
+            hubConnection.On<object>("DocumentState", (stateObj) =>
             {
-                onlineUsers = users;
-                InvokeAsync(StateHasChanged);
+                try
+                {
+                    Console.WriteLine($"[SignalR] 收到 DocumentState: {stateObj}");
+                    var stateJson = JsonSerializer.Serialize(stateObj);
+                    var state = JsonSerializer.Deserialize<JsonElement>(stateJson);
+                    
+                    if (state.TryGetProperty("users", out var usersElement))
+                    {
+                        var users = JsonSerializer.Deserialize<List<OnlineUser>>(usersElement.GetRawText());
+                        if (users != null)
+                        {
+                            onlineUsers = users;
+                            Console.WriteLine($"[SignalR] 更新在线用户: {onlineUsers.Count} 人");
+                            InvokeAsync(StateHasChanged);
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[SignalR] DocumentState 解析错误: {ex.Message}");
+                }
             });
 
             // 光标更新
