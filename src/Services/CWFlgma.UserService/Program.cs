@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using System.Diagnostics;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using CWFlgma.Infrastructure;
@@ -44,10 +45,15 @@ app.UseAuthorization();
 
 // ==================== Auth endpoints ====================
 
+// 自定义 ActivitySource
+var activitySource = new ActivitySource("CWFlgma.UserService");
+
 app.MapPost("/api/auth/login", async (LoginRequest request, IAuthenticationService authService, ILoggerFactory loggerFactory) =>
 {
+    using var activity = activitySource.StartActivity("Login");
     var logger = loggerFactory.CreateLogger("AuthEndpoints");
     
+    activity?.SetTag("user.email", request.Email);
     logger.LogInformation("[Login] 收到登录请求: Email={Email}", request.Email);
     logger.LogDebug("[Login] 请求详情: {@Request}", new { request.Email, PasswordLength = request.Password?.Length ?? 0 });
     
