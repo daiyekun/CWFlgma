@@ -13,6 +13,7 @@ public class Document
     public long? ParentId { get; set; }
     public string Type { get; set; } = "design";
     public string? ThumbnailUrl { get; set; }
+    public string? Content { get; set; } // 存储设计内容（JSON）
     public int Width { get; set; } = 1920;
     public int Height { get; set; } = 1080;
     public string BackgroundColor { get; set; } = "#FFFFFF";

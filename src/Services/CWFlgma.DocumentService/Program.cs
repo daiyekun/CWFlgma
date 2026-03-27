@@ -113,6 +113,7 @@ app.MapGet("/api/documents/{id:long}", async (long id, HttpContext context, CWFl
         document.ParentId,
         document.Type,
         document.ThumbnailUrl,
+        document.Content,  // 添加 Content 字段
         document.Width,
         document.Height,
         document.BackgroundColor,
@@ -173,6 +174,7 @@ app.MapPut("/api/documents/{id:long}", async (long id, UpdateDocumentRequest req
     if (request.Height.HasValue) document.Height = request.Height.Value;
     if (request.BackgroundColor != null) document.BackgroundColor = request.BackgroundColor;
     if (request.IsPublic.HasValue) document.IsPublic = request.IsPublic.Value;
+    if (request.Content != null) document.Content = request.Content;
     document.UpdatedAt = DateTime.UtcNow;
     document.Version++;
 
@@ -378,5 +380,5 @@ app.MapGet("/api/documents/{documentId:long}/versions/compare", async (long docu
 app.Run();
 
 record CreateDocumentRequest(string Title, string? Description, long? TeamId, long? ParentId, string Type, int Width, int Height, string BackgroundColor);
-record UpdateDocumentRequest(string? Title, string? Description, int? Width, int? Height, string? BackgroundColor, bool? IsPublic);
+record UpdateDocumentRequest(string? Title, string? Description, int? Width, int? Height, string? BackgroundColor, bool? IsPublic, string? Content);
 record CreateVersionRequest(string? Title, string? Comment, string? SnapshotUrl);

@@ -1,46 +1,26 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
-// 添加基础设施资源 - 使用信任认证
-var postgres = builder.AddPostgres("postgres")
-    .WithContainerName("cwflgma-postgres")
-    .WithDataVolume("cwflgma-postgres-data")
-    .WithEnvironment("POSTGRES_PASSWORD", "postgres")
-    .WithPgAdmin(pgAdmin => pgAdmin
-        .WithContainerName("cwflgma-pgadmin"))
-    .AddDatabase("postgresdb");
+// 连接字符串 - 直接使用 docker-compose 容器
+var postgresConnString = "Host=localhost;Port=5432;Database=postgresdb;Username=postgres;Password=postgres";
+var mongodbConnString = "mongodb://localhost:27017/cwflgma";
+var redisConnString = "localhost:6379";
 
-var mongodb = builder.AddMongoDB("mongodb")
-    .WithContainerName("cwflgma-mongodb")
-    .WithDataVolume("cwflgma-mongodb-data")
-    .WithMongoExpress(mongo => mongo
-        .WithContainerName("cwflgma-mongo-express"))
-    .AddDatabase("mongodbdb");
-
-var redis = builder.AddRedis("redis")
-    .WithContainerName("cwflgma-redis")
-    .WithDataVolume("cwflgma-redis-data");
-
-// 添加种子数据服务
-var seeder = builder.AddProject<Projects.CWFlgma_Seeder>("seeder")
-    .WithReference(postgres)
-    .WithReference(mongodb);
-
-// 添加微服务
+// 添加微服务 - 使用环境变量传递连接字符串
 var userService = builder.AddProject<Projects.CWFlgma_UserService>("userservice")
-    .WithReference(postgres)
-    .WithReference(redis);
+    .WithEnvironment("ConnectionStrings__postgresdb", postgresConnString)
+    .WithEnvironment("ConnectionStrings__redis", redisConnString);
 
 var documentService = builder.AddProject<Projects.CWFlgma_DocumentService>("documentservice")
-    .WithReference(postgres)
-    .WithReference(mongodb)
-    .WithReference(redis);
+    .WithEnvironment("ConnectionStrings__postgresdb", postgresConnString)
+    .WithEnvironment("ConnectionStrings__mongodbdb", mongodbConnString)
+    .WithEnvironment("ConnectionStrings__redis", redisConnString);
 
 var collaborationService = builder.AddProject<Projects.CWFlgma_CollaborationService>("collaborationservice")
-    .WithReference(mongodb)
-    .WithReference(redis);
+    .WithEnvironment("ConnectionStrings__mongodbdb", mongodbConnString)
+    .WithEnvironment("ConnectionStrings__redis", redisConnString);
 
 var resourceService = builder.AddProject<Projects.CWFlgma_ResourceService>("resourceservice")
-    .WithReference(postgres);
+    .WithEnvironment("ConnectionStrings__postgresdb", postgresConnString);
 
 var gateway = builder.AddProject<Projects.CWFlgma_Gateway>("gateway")
     .WithExternalHttpEndpoints()

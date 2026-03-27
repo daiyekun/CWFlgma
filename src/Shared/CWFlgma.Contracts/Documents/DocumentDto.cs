@@ -14,6 +14,7 @@ public class DocumentDto
     public long? ParentId { get; set; }
     public string Type { get; set; } = "design";
     public string? ThumbnailUrl { get; set; }
+    public string? Content { get; set; }  // 添加 Content 字段
     public int Width { get; set; }
     public int Height { get; set; }
     public string BackgroundColor { get; set; } = "#FFFFFF";
@@ -41,6 +42,7 @@ public class UpdateDocumentRequest
 {
     public string? Title { get; set; }
     public string? Description { get; set; }
+    public string? Content { get; set; }  // 添加 Content 字段
     public int? Width { get; set; }
     public int? Height { get; set; }
     public string? BackgroundColor { get; set; }

@@ -1,318 +1,643 @@
 @page "/documents/{Id:long}"
 @using System.Net.Http.Json
+@using System.Text.Json
 @using Microsoft.JSInterop
+@using Microsoft.AspNetCore.SignalR.Client
 @inject IHttpClientFactory HttpClientFactory
 @inject NavigationManager Navigation
 @inject IJSRuntime JSRuntime
+@implements IAsyncDisposable
 
 <PageTitle>设计编辑器</PageTitle>
 
-<div class="editor">
-    <header class="toolbar">
-        <div class="toolbar-left">
-            <a href="/documents" class="back-btn">← 返回</a>
-            <span class="title">@(document?.Title ?? "加载中...")</span>
-        </div>
-        <div class="toolbar-center">
-            <button class="tool @(tool == "select" ? "active" : "")" @onclick='() => tool = "select"'>选择</button>
-            <button class="tool @(tool == "rect" ? "active" : "")" @onclick='() => tool = "rect"'>矩形</button>
-            <button class="tool @(tool == "ellipse" ? "active" : "")" @onclick='() => tool = "ellipse"'>圆形</button>
-            <button class="tool @(tool == "text" ? "active" : "")" @onclick='() => tool = "text"'>文本</button>
-            <button class="tool @(tool == "hand" ? "active" : "")" @onclick='() => tool = "hand"'>移动</button>
-        </div>
-        <div class="toolbar-right">
-            <span class="zoom">@((int)(zoom*100))%</span>
-            <button class="btn" @onclick="() => showVer = true">版本</button>
-        </div>
-    </header>
-
-    <div class="main">
-        <!-- 左侧 -->
-        <aside class="left">
-            <div class="section-title">图层</div>
-            @foreach (var l in layers)
-            {
-                <div class="layer @(selId == l.Id ? "sel" : "")" @onclick="() => selId = l.Id">
-                    <span>@l.Name</span>
-                </div>
-            }
-            <div class="section-title">添加</div>
-            <div class="add-btns">
-                <button @onclick="@(() => AddEl("rect"))">矩形</button>
-                <button @onclick="@(() => AddEl("ellipse"))">圆形</button>
-                <button @onclick="@(() => AddEl("text"))">文本</button>
-                <button @onclick="@(() => AddEl("button"))">按钮</button>
+@if (loading)
+{
+    <div class="loading-screen">
+        <div class="spinner"></div>
+        <p>加载中...</p>
+        <p class="debug">@debugMsg</p>
+    </div>
+}
+else if (!string.IsNullOrEmpty(error))
+{
+    <div class="error-screen">
+        <h2>加载失败</h2>
+        <p>@error</p>
+        <a href="/documents" class="btn">返回</a>
+        <button class="btn" @onclick="Load">重试</button>
+    </div>
+}
+else
+{
+    <div class="editor">
+        <header class="toolbar">
+            <div class="toolbar-left">
+                <a href="/documents" class="back-btn">← 返回</a>
+                <span class="title">@docTitle</span>
+                @if (hasChanges) { <span class="unsaved">●</span> }
             </div>
-        </aside>
-
-        <!-- 画布 -->
-        <div class="canvas-area" id="canvasArea"
-             @onmousedown="OnDown"
-             @onmousemove="OnMove" 
-             @onmouseup="OnUp">
-            <div class="canvas-wrap" style="transform:translate(@(px)px,@(py)px) scale(@zoom)">
-                <div class="canvas" style="width:@(document?.Width ?? 800)px; height:@(document?.Height ?? 600)px; background:@(document?.BackgroundColor ?? "#fff")">
-                    @foreach (var s in shapes)
+            <div class="toolbar-center">
+                <button class="tool @(tool == "select" ? "active" : "")" @onclick='() => tool = "select"'>选择</button>
+                <button class="tool @(tool == "rect" ? "active" : "")" @onclick='() => tool = "rect"'>矩形</button>
+                <button class="tool @(tool == "ellipse" ? "active" : "")" @onclick='() => tool = "ellipse"'>圆形</button>
+                <button class="tool @(tool == "text" ? "active" : "")" @onclick='() => tool = "text"'>文本</button>
+                <button class="tool @(tool == "hand" ? "active" : "")" @onclick='() => tool = "hand"'>移动</button>
+            </div>
+            <div class="toolbar-right">
+                <div class="online-users">
+                    @foreach (var u in onlineUsers)
                     {
-                        <div class="el @s.Type @(selId == s.Id ? "sel" : "")"
-                             style="left:@(s.X)px;top:@(s.Y)px;width:@(s.W)px;height:@(s.H)px;background:@(s.Type=="text"?"transparent":s.Fill);border-radius:@(s.Type=="ellipse"?"50%":s.R+"px")"
-                             @onmousedown="@(e => ShapeDown(e, s))"
-                             @onmousedown:stopPropagation="true">
-                            @if (s.Text != null) { <span>@s.Text</span> }
+                        <div class="user-avatar" style="background:@GetUserColor(u.UserId)" title="@u.Username">
+                            @GetInitial(u.Username)
+                        </div>
+                    }
+                    <span class="online-count">@onlineUsers.Count 人在线</span>
+                </div>
+                <button class="icon-btn" @onclick="() => zoom = Math.Max(0.1, zoom - 0.1)">-</button>
+                <span class="zoom">@((int)(zoom*100))%</span>
+                <button class="icon-btn" @onclick="() => zoom = Math.Min(5, zoom + 0.1)">+</button>
+                <button class="btn save" @onclick="Save" disabled="@(!hasChanges || isSaving)">
+                    @(isSaving ? "保存中..." : "保存")
+                </button>
+            </div>
+        </header>
+
+        <div class="main">
+            <aside class="panel-left">
+                <div class="panel-title">图层 (@layers.Count)</div>
+                <div class="layer-list">
+                    @for (var i = layers.Count - 1; i >= 0; i--)
+                    {
+                        var l = layers[i];
+                        <div class="layer @(selId == l.Id ? "sel" : "")" @onclick="() => selId = l.Id">
+                            <span>@l.Name</span>
                         </div>
                     }
                 </div>
-            </div>
-        </div>
+                <div class="panel-title">添加元素</div>
+                <div class="add-grid">
+                    <button @onclick='() => AddEl("rect")'>矩形</button>
+                    <button @onclick='() => AddEl("ellipse")'>圆形</button>
+                    <button @onclick='() => AddEl("text")'>文本</button>
+                    <button @onclick='() => AddEl("button")'>按钮</button>
+                </div>
+            </aside>
 
-        <!-- 右侧 -->
-        <aside class="right">
-            <div class="section-title">属性</div>
-            @if (cur != null)
-            {
-                <div class="prop">
-                    <label>X</label>
-                    <input type="number" value="@cur.X" @oninput="e => { if(int.TryParse(e.Value?.ToString(),out var v)) cur.X=v; }" />
+            <div class="canvas-container"
+                 @onmousedown="CanvasDown"
+                 @onmousemove="CanvasMove"
+                 @onmouseup="CanvasUp"
+                 @onwheel="Wheel">
+                <div class="canvas-scroll" style="transform: translate(@(panX)px, @(panY)px) scale(@zoom);">
+                    <div class="canvas" style="width:@(canvasW)px; height:@(canvasH)px; background:@canvasBg;">
+                        @foreach (var s in shapes)
+                        {
+                            <div class="shape @s.Type @(selId == s.Id ? "sel" : "")"
+                                 style="@Style(s)"
+                                 @onmousedown="e => ElDown(e, s)"
+                                 @onmousedown:stopPropagation
+                                 @ondblclick="() => DblClick(s)">
+                                @if (editingId == s.Id)
+                                {
+                                    <input class="text-input" value="@s.Text"
+                                           @onchange="e => { s.Text = e.Value?.ToString(); editingId = null; MarkChanged(); BroadcastChange(); }"
+                                           @onblur="() => editingId = null"
+                                           @ref="editRef" />
+                                }
+                                else if (s.Text != null)
+                                {
+                                    <span>@s.Text</span>
+                                }
+                            </div>
+                        }
+                        
+                        <!-- 其他用户的光标 -->
+                        @foreach (var u in onlineUsers.Where(u => u.SessionId != mySessionId && u.Cursor != null))
+                        {
+                            <div class="remote-cursor" style="left:@(u.Cursor!.X)px;top:@(u.Cursor!.Y)px;">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="@GetUserColor(u.UserId)">
+                                    <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/>
+                                </svg>
+                                <span class="cursor-label" style="background:@GetUserColor(u.UserId)">@u.Username</span>
+                            </div>
+                        }
+
+                        @if (cur != null && tool == "select")
+                        {
+                            <div class="selection" style="left:@(cur.X)px;top:@(cur.Y)px;width:@(cur.W)px;height:@(cur.H)px;">
+                                <div class="handle corner tl" @onmousedown="e => StartResize(e,0,0)" @onmousedown:stopPropagation></div>
+                                <div class="handle corner tr" @onmousedown="e => StartResize(e,1,0)" @onmousedown:stopPropagation></div>
+                                <div class="handle corner bl" @onmousedown="e => StartResize(e,0,1)" @onmousedown:stopPropagation></div>
+                                <div class="handle corner br" @onmousedown="e => StartResize(e,1,1)" @onmousedown:stopPropagation></div>
+                            </div>
+                        }
+                    </div>
                 </div>
-                <div class="prop">
-                    <label>Y</label>
-                    <input type="number" value="@cur.Y" @oninput="e => { if(int.TryParse(e.Value?.ToString(),out var v)) cur.Y=v; }" />
-                </div>
-                <div class="prop">
-                    <label>宽度</label>
-                    <input type="number" value="@cur.W" @oninput="e => { if(int.TryParse(e.Value?.ToString(),out var v)) cur.W=v; }" />
-                </div>
-                <div class="prop">
-                    <label>高度</label>
-                    <input type="number" value="@cur.H" @oninput="e => { if(int.TryParse(e.Value?.ToString(),out var v)) cur.H=v; }" />
-                </div>
-                <div class="prop">
-                    <label>颜色</label>
-                    <input type="color" value="@cur.Fill" @oninput="e => cur.Fill = e.Value?.ToString() ?? cur.Fill" />
-                </div>
-                <div class="prop">
-                    <label>圆角</label>
-                    <input type="number" value="@cur.R" @oninput="e => { if(int.TryParse(e.Value?.ToString(),out var v)) cur.R=v; }" />
-                </div>
-                @if (cur.Type == "text" || cur.Type == "button")
+            </div>
+
+            <aside class="panel-right">
+                <div class="panel-title">属性</div>
+                @if (cur != null)
                 {
-                    <div class="prop">
-                        <label>文字</label>
-                        <input type="text" value="@cur.Text" @oninput="e => cur.Text = e.Value?.ToString()" />
+                    <div class="props">
+                        <div class="row">
+                            <div class="prop"><label>X</label><input type="number" value="@cur.X" @oninput="e => { if(int.TryParse(e.Value?.ToString(),out var v)){cur.X=v;MarkChanged();BroadcastChange();} }" /></div>
+                            <div class="prop"><label>Y</label><input type="number" value="@cur.Y" @oninput="e => { if(int.TryParse(e.Value?.ToString(),out var v)){cur.Y=v;MarkChanged();BroadcastChange();} }" /></div>
+                        </div>
+                        <div class="row">
+                            <div class="prop"><label>W</label><input type="number" value="@cur.W" @oninput="e => { if(int.TryParse(e.Value?.ToString(),out var v)){cur.W=v;MarkChanged();BroadcastChange();} }" /></div>
+                            <div class="prop"><label>H</label><input type="number" value="@cur.H" @oninput="e => { if(int.TryParse(e.Value?.ToString(),out var v)){cur.H=v;MarkChanged();BroadcastChange();} }" /></div>
+                        </div>
+                        <div class="prop">
+                            <label>颜色</label>
+                            <div class="color-row">
+                                <input type="color" value="@cur.Fill" @oninput="e => { cur.Fill=e.Value?.ToString()??cur.Fill; MarkChanged();BroadcastChange(); }" />
+                                <input type="text" value="@cur.Fill" @oninput="e => { cur.Fill=e.Value?.ToString()??cur.Fill; MarkChanged();BroadcastChange(); }" />
+                            </div>
+                        </div>
+                        <div class="prop"><label>圆角</label><input type="number" value="@cur.R" min="0" @oninput="e => { if(int.TryParse(e.Value?.ToString(),out var v)){cur.R=v;MarkChanged();BroadcastChange();} }" /></div>
+                        @if (cur.Type == "text" || cur.Type == "button")
+                        {
+                            <div class="prop"><label>文字</label><input type="text" value="@cur.Text" @oninput="e => { cur.Text=e.Value?.ToString(); MarkChanged();BroadcastChange(); }" /></div>
+                        }
+                        <button class="btn-del" @onclick="Del">删除</button>
                     </div>
                 }
-                <button class="del" @onclick="Del">删除</button>
-            }
-            else
-            {
-                <p class="hint">选中元素查看属性</p>
-            }
-        </aside>
-    </div>
-
-    <footer class="status">
-        <span>工具: @tool</span>
-        <span>位置: @(cur?.X ?? 0), @(cur?.Y ?? 0)</span>
-    </footer>
-</div>
-
-@if (showVer)
-{
-    <div class="modal-bg" @onclick="() => showVer = false">
-        <div class="modal" @onclick:stopPropagation>
-            <h3>版本历史</h3>
-            @foreach (var v in vers)
-            {
-                <div class="ver">
-                    <span>v@v.VersionNumber - @v.CreatedAt.ToString("MM-dd HH:mm")</span>
-                    <button @onclick="() => Restore(v.Id)">回滚</button>
-                </div>
-            }
-            <button class="save-btn" @onclick="SaveVer">保存版本</button>
-            <button class="close-btn" @onclick="() => showVer = false">关闭</button>
+                else
+                {
+                    <p class="hint">点击元素选中<br/>双击文字编辑</p>
+                }
+            </aside>
         </div>
+
+        <footer class="statusbar">
+            <span>工具: @tool</span>
+            <span>@canvasW × @canvasH</span>
+            @if (cur != null) { <span>选中: @cur.Type</span> }
+            <span class="connection-status">@(hubConnection?.State == HubConnectionState.Connected ? "🟢 已连接" : "🔴 未连接")</span>
+            <span class="right">@((hasChanges ? "未保存" : "已同步"))</span>
+        </footer>
     </div>
+
+    @if (showToast)
+    {
+        <div class="toast">@toastMsg</div>
+    }
 }
 
 @code {
     [Parameter] public long Id { get; set; }
 
-    // 数据
-    Doc? document;
-    List<Ver> vers = new();
+    bool loading = true;
+    string? error;
+    string debugMsg = "初始化...";
+
+    string docTitle = "";
+    int canvasW = 1920, canvasH = 1080;
+    string canvasBg = "#ffffff";
+
     List<Lay> layers = new();
     List<El> shapes = new();
+    
+    // 实时协作
+    HubConnection? hubConnection;
+    List<OnlineUser> onlineUsers = new();
+    string? mySessionId;
+    string myUsername = "";
+    long myUserId;
 
-    // UI
-    bool showVer;
     string tool = "select";
     string? selId;
-    double zoom = 1;
-    double px = 20, py = 20;
+    string? editingId;
+    double zoom = 0.5;
+    double panX = 50, panY = 50;
+    bool hasChanges, isSaving;
+    bool showToast;
+    string toastMsg = "";
 
-    // 拖拽
-    bool dragging, panning;
-    double mx0, my0;  // 鼠标起始
-    double elX0, elY0; // 元素起始
-    double px0, py0;   // 画布起始
+    bool dragging, panning, resizing;
+    double mx0, my0, elX0, elY0, elW0, elH0, panX0, panY0;
+    int rsX, rsY;
 
+    ElementReference editRef;
     El? cur => shapes.FirstOrDefault(s => s.Id == selId);
+    
+    readonly string[] userColors = { "#7c3aed", "#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#ec4899" };
+
+    void MarkChanged() => hasChanges = true;
 
     protected override async Task OnInitializedAsync()
     {
-        await LoadDoc();
-        await LoadVers();
-        // 示例数据
-        layers = new() { new("bg","背景"), new("t1","标题"), new("b1","按钮") };
-        shapes = new() {
-            new("bg","rect",0,0,600,400,"#2d2d3f"),
-            new("t1","text",50,50,200,40,"#fff"){Text="CWFlgma"},
-            new("b1","button",50,150,120,44,"#7c3aed",8){Text="开始"}
+        await Load();
+        await ConnectSignalR();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (editingId != null)
+            try { await editRef.FocusAsync(); } catch { }
+    }
+
+    // SignalR 连接
+    async Task ConnectSignalR()
+    {
+        try
+        {
+            var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "authToken");
+            var userJson = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "user");
+            
+            if (!string.IsNullOrEmpty(userJson))
+            {
+                var user = JsonSerializer.Deserialize<JsonElement>(userJson);
+                myUserId = user.GetProperty("id").GetInt64();
+                myUsername = user.GetProperty("username").GetString() ?? "User";
+            }
+
+            hubConnection = new HubConnectionBuilder()
+                .WithUrl("https://localhost:7165/hubs/collaboration", options =>
+                {
+                    options.AccessTokenProvider = () => Task.FromResult(token);
+                })
+                .WithAutomaticReconnect()
+                .Build();
+
+            // 用户加入
+            hubConnection.On<OnlineUser>("UserJoined", user =>
+            {
+                if (!onlineUsers.Any(u => u.SessionId == user.SessionId))
+                {
+                    onlineUsers.Add(user);
+                    InvokeAsync(StateHasChanged);
+                }
+            });
+
+            // 用户离开
+            hubConnection.On<string>("UserLeft", sessionId =>
+            {
+                onlineUsers.RemoveAll(u => u.SessionId == sessionId);
+                InvokeAsync(StateHasChanged);
+            });
+
+            // 文档状态
+            hubConnection.On<List<OnlineUser>>("DocumentState", users =>
+            {
+                onlineUsers = users;
+                InvokeAsync(StateHasChanged);
+            });
+
+            // 光标更新
+            hubConnection.On<string, long, double, double>("CursorUpdated", (sessionId, userId, x, y) =>
+            {
+                var user = onlineUsers.FirstOrDefault(u => u.SessionId == sessionId);
+                if (user != null)
+                {
+                    user.Cursor = new CursorPos { X = x, Y = y };
+                    InvokeAsync(StateHasChanged);
+                }
+            });
+
+            // 元素更新（实时同步）
+            hubConnection.On<string>("ShapesUpdated", json =>
+            {
+                try
+                {
+                    var updated = JsonSerializer.Deserialize<SavedContent>(json);
+                    if (updated != null)
+                    {
+                        layers = updated.Layers;
+                        shapes = updated.Shapes;
+                        InvokeAsync(StateHasChanged);
+                    }
+                }
+                catch { }
+            });
+
+            await hubConnection.StartAsync();
+            mySessionId = hubConnection.ConnectionId;
+
+            // 加入文档房间
+            await hubConnection.InvokeAsync("JoinDocument", Id.ToString(), myUserId, myUsername, myUsername, null);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine("SignalR 连接失败: " + ex.Message);
+        }
+    }
+
+    // 广播变更给其他用户
+    async Task BroadcastChange()
+    {
+        if (hubConnection?.State != HubConnectionState.Connected) return;
+        
+        try
+        {
+            var json = JsonSerializer.Serialize(new SavedContent { Layers = layers, Shapes = shapes });
+            await hubConnection.InvokeAsync("BroadcastShapes", Id.ToString(), json);
+        }
+        catch { }
+    }
+
+    // 广播光标位置
+    async Task BroadcastCursor(double x, double y)
+    {
+        if (hubConnection?.State != HubConnectionState.Connected) return;
+        
+        try
+        {
+            await hubConnection.InvokeAsync("UpdateCursor", Id.ToString(), x, y);
+        }
+        catch { }
+    }
+
+    async Task Load()
+    {
+        loading = true;
+        error = null;
+        debugMsg = "获取Token...";
+        StateHasChanged();
+
+        try
+        {
+            var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "authToken");
+            if (string.IsNullOrEmpty(token))
+            {
+                Navigation.NavigateTo("/login");
+                return;
+            }
+            debugMsg = "请求文档...";
+            StateHasChanged();
+
+            var http = HttpClientFactory.CreateClient("DocumentService");
+            http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            http.Timeout = TimeSpan.FromSeconds(10);
+
+            var resp = await http.GetAsync($"/api/documents/{Id}");
+            debugMsg = $"响应: {resp.StatusCode}";
+            StateHasChanged();
+
+            if (!resp.IsSuccessStatusCode)
+            {
+                error = $"文档加载失败: {resp.StatusCode}";
+                loading = false;
+                StateHasChanged();
+                return;
+            }
+
+            var json = await resp.Content.ReadAsStringAsync();
+            debugMsg = $"数据长度: {json.Length}";
+            StateHasChanged();
+
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            docTitle = root.GetProperty("title").GetString() ?? "";
+            canvasW = root.GetProperty("width").GetInt32();
+            canvasH = root.GetProperty("height").GetInt32();
+            canvasBg = root.GetProperty("backgroundColor").GetString() ?? "#fff";
+
+            if (root.TryGetProperty("content", out var c) && c.ValueKind != JsonValueKind.Null)
+            {
+                var content = c.GetString();
+                if (!string.IsNullOrEmpty(content))
+                {
+                    try
+                    {
+                        var saved = JsonSerializer.Deserialize<SavedContent>(content);
+                        if (saved?.Shapes?.Count > 0)
+                        {
+                            layers = saved.Layers ?? new();
+                            shapes = saved.Shapes;
+                            debugMsg = $"加载了 {shapes.Count} 个元素";
+                            loading = false;
+                            StateHasChanged();
+                            return;
+                        }
+                    }
+                    catch { }
+                }
+            }
+
+            debugMsg = "使用默认内容";
+            InitDefault();
+            loading = false;
+        }
+        catch (TaskCanceledException)
+        {
+            error = "请求超时";
+            loading = false;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            loading = false;
+        }
+        StateHasChanged();
+    }
+
+    void InitDefault()
+    {
+        layers = new() { new("bg", "背景"), new("t1", "标题"), new("b1", "按钮") };
+        shapes = new()
+        {
+            new El("bg", "rect", 0, 0, 600, 400, "#2d2d3f"),
+            new El("t1", "text", 50, 50, 300, 50, "#ffffff") { Text = "CWFlgma 设计平台" },
+            new El("b1", "button", 50, 150, 120, 44, "#7c3aed", 8) { Text = "开始设计" }
         };
     }
 
-    void ShapeDown(MouseEventArgs e, El s)
+    async Task Save()
     {
-        if (tool != "select") return;
-        
-        selId = s.Id;
-        dragging = true;
-        mx0 = e.ClientX;
-        my0 = e.ClientY;
-        elX0 = s.X;
-        elY0 = s.Y;
+        if (isSaving) return;
+        isSaving = true;
+        StateHasChanged();
+
+        try
+        {
+            var token = await JSRuntime.InvokeAsync<string>("localStorage.getItem", "authToken");
+            var http = HttpClientFactory.CreateClient("DocumentService");
+            http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+
+            var content = JsonSerializer.Serialize(new SavedContent { Layers = layers, Shapes = shapes });
+            var body = new { Content = content };
+            var resp = await http.PutAsJsonAsync($"/api/documents/{Id}", body);
+
+            if (resp.IsSuccessStatusCode)
+            {
+                hasChanges = false;
+                toastMsg = "保存成功 ✓";
+                showToast = true;
+                StateHasChanged();
+                await Task.Delay(2000);
+                showToast = false;
+            }
+            else
+            {
+                toastMsg = "保存失败";
+                showToast = true;
+            }
+        }
+        catch
+        {
+            toastMsg = "保存出错";
+            showToast = true;
+        }
+        finally
+        {
+            isSaving = false;
+            StateHasChanged();
+        }
     }
 
-    void OnDown(MouseEventArgs e)
+    void CanvasDown(MouseEventArgs e)
     {
-        mx0 = e.ClientX;
-        my0 = e.ClientY;
-
-        if (tool == "hand")
-        {
-            panning = true;
-            px0 = px;
-            py0 = py;
-        }
-        else if (tool == "select")
-        {
-            selId = null; // 点击空白取消选择
-        }
-        else
-        {
-            // 添加元素到点击位置
-            var canvasX = (e.OffsetX - px) / zoom;
-            var canvasY = (e.OffsetY - py) / zoom;
-            AddAt(tool, (int)canvasX, (int)canvasY);
-        }
+        mx0 = e.ClientX; my0 = e.ClientY;
+        if (tool == "hand") { panning = true; panX0 = panX; panY0 = panY; }
+        else if (tool == "select") { selId = null; }
+        else { AddAt(tool, (int)((e.OffsetX - panX) / zoom), (int)((e.OffsetY - panY) / zoom)); }
     }
 
-    void OnMove(MouseEventArgs e)
+    async Task CanvasMove(MouseEventArgs e)
     {
         if (dragging && cur != null)
         {
+            cur.X = (int)(elX0 + (e.ClientX - mx0) / zoom);
+            cur.Y = (int)(elY0 + (e.ClientY - my0) / zoom);
+            MarkChanged();
+        }
+        else if (panning) { panX = panX0 + e.ClientX - mx0; panY = panY0 + e.ClientY - my0; }
+        else if (resizing && cur != null)
+        {
             var dx = (e.ClientX - mx0) / zoom;
             var dy = (e.ClientY - my0) / zoom;
-            cur.X = (int)(elX0 + dx);
-            cur.Y = (int)(elY0 + dy);
+            if (rsX == 1) cur.W = Math.Max(10, (int)(elW0 + dx));
+            if (rsX == 0) { cur.X = (int)(elX0 + dx); cur.W = Math.Max(10, (int)(elW0 - dx)); }
+            if (rsY == 1) cur.H = Math.Max(10, (int)(elH0 + dy));
+            if (rsY == 0) { cur.Y = (int)(elY0 + dy); cur.H = Math.Max(10, (int)(elH0 - dy)); }
+            MarkChanged();
         }
-        else if (panning)
+        
+        // 广播光标位置
+        var canvasX = (e.OffsetX - panX) / zoom;
+        var canvasY = (e.OffsetY - panY) / zoom;
+        await BroadcastCursor(canvasX, canvasY);
+    }
+
+    async Task CanvasUp(MouseEventArgs e) 
+    { 
+        if (dragging || resizing)
         {
-            px = px0 + (e.ClientX - mx0);
-            py = py0 + (e.ClientY - my0);
+            await BroadcastChange();
         }
+        dragging = false; 
+        panning = false; 
+        resizing = false; 
     }
 
-    void OnUp(MouseEventArgs e)
+    void Wheel(WheelEventArgs e)
     {
-        dragging = false;
-        panning = false;
+        if (e.CtrlKey) zoom = Math.Clamp(zoom - e.DeltaY * 0.001, 0.1, 5);
+        else { panX -= e.DeltaX; panY -= e.DeltaY; }
     }
 
-    void AddEl(string type)
+    void ElDown(MouseEventArgs e, El el)
     {
-        if (document == null) return;
-        AddAt(type, document.Width / 2, document.Height / 2);
+        if (tool != "select") return;
+        selId = el.Id; dragging = true;
+        mx0 = e.ClientX; my0 = e.ClientY; elX0 = el.X; elY0 = el.Y;
+    }
+
+    void DblClick(El el)
+    {
+        if (el.Type == "text" || el.Type == "button") editingId = el.Id;
+    }
+
+    void StartResize(MouseEventArgs e, int x, int y)
+    {
+        if (cur == null) return;
+        resizing = true; rsX = x; rsY = y;
+        mx0 = e.ClientX; my0 = e.ClientY;
+        elX0 = cur.X; elY0 = cur.Y; elW0 = cur.W; elH0 = cur.H;
+    }
+
+    async Task AddEl(string type) 
+    { 
+        AddAt(type, canvasW / 2, canvasH / 2);
+        await BroadcastChange();
     }
 
     void AddAt(string type, int x, int y)
     {
         var id = Guid.NewGuid().ToString("N")[..8];
-        var (w,h) = type switch { "button"=>(120,44), "text"=>(150,30), "ellipse"=>(100,100), _=>(100,100) };
-        var fill = type switch { "button"=>"#7c3aed", "rect"=>"#3b82f6", "ellipse"=>"#ec4899", _=>"#333" };
-        var text = type switch { "button"=>"按钮", "text"=>"文本", _=>null };
-        var r = type == "button" ? 8 : 0;
-
-        shapes.Add(new El(id, type, x - w/2, y - h/2, w, h, fill, r) { Text = text });
-        layers.Add(new Lay(id, type + " " + (layers.Count+1)));
-        selId = id;
-        tool = "select";
+        var (w, h) = type switch { "button" => (120, 44), "text" => (200, 40), "ellipse" => (100, 100), _ => (100, 100) };
+        var fill = type switch { "button" => "#7c3aed", "rect" => "#3b82f6", "ellipse" => "#ec4899", _ => "#333" };
+        var text = type switch { "button" => "按钮", "text" => "双击编辑", _ => null };
+        shapes.Add(new El(id, type, x - w / 2, y - h / 2, w, h, fill, type == "button" ? 8 : 0) { Text = text });
+        layers.Add(new Lay(id, type + " " + (layers.Count + 1)));
+        selId = id; tool = "select"; MarkChanged();
     }
 
-    void Del()
+    async Task Del()
     {
         if (selId == null) return;
         shapes.RemoveAll(s => s.Id == selId);
         layers.RemoveAll(l => l.Id == selId);
-        selId = null;
+        selId = null; MarkChanged();
+        await BroadcastChange();
     }
 
-    // API
-    async Task LoadDoc()
+    string Style(El s)
     {
-        try {
-            var t = await JSRuntime.InvokeAsync<string>("localStorage.getItem","authToken");
-            if (string.IsNullOrEmpty(t)) { Navigation.NavigateTo("/login"); return; }
-            var c = HttpClientFactory.CreateClient("DocumentService");
-            c.DefaultRequestHeaders.Authorization = new("Bearer",t);
-            var r = await c.GetAsync("/api/documents/"+Id);
-            if (r.IsSuccessStatusCode) document = await r.Content.ReadFromJsonAsync<Doc>();
-        } catch {}
+        var r = s.Type == "ellipse" ? "50%" : s.R + "px";
+        var bg = s.Type == "text" ? "transparent" : s.Fill;
+        return $"left:{s.X}px;top:{s.Y}px;width:{s.W}px;height:{s.H}px;background:{bg};border-radius:{r}";
     }
+    
+    string GetUserColor(long userId) => userColors[Math.Abs(userId) % userColors.Length];
+    string GetInitial(string name) => string.IsNullOrEmpty(name) ? "U" : name[..1].ToUpper();
 
-    async Task LoadVers()
+    public async ValueTask DisposeAsync()
     {
-        try {
-            var t = await JSRuntime.InvokeAsync<string>("localStorage.getItem","authToken");
-            var c = HttpClientFactory.CreateClient("DocumentService");
-            c.DefaultRequestHeaders.Authorization = new("Bearer",t);
-            vers = await c.GetFromJsonAsync<List<Ver>>($"/api/documents/{Id}/versions") ?? new();
-        } catch {}
-    }
-
-    async Task SaveVer()
-    {
-        try {
-            var t = await JSRuntime.InvokeAsync<string>("localStorage.getItem","authToken");
-            var c = HttpClientFactory.CreateClient("DocumentService");
-            c.DefaultRequestHeaders.Authorization = new("Bearer",t);
-            await c.PostAsJsonAsync($"/api/documents/{Id}/versions", new { title = "v"+(vers.Count+1) });
-            await LoadVers();
-        } catch {}
-    }
-
-    async Task Restore(long vid)
-    {
-        if (!await JSRuntime.InvokeAsync<bool>("confirm","确定回滚？")) return;
-        try {
-            var t = await JSRuntime.InvokeAsync<string>("localStorage.getItem","authToken");
-            var c = HttpClientFactory.CreateClient("DocumentService");
-            c.DefaultRequestHeaders.Authorization = new("Bearer",t);
-            await c.PostAsync($"/api/documents/{Id}/versions/{vid}/restore",null);
-            await LoadDoc();
-        } catch {}
-    }
-
-    // DTOs
-    record Doc(long Id, string Title, int Width, int Height, string BackgroundColor);
-    record Ver(long Id, int VersionNumber, DateTime CreatedAt);
-    record Lay(string Id, string Name);
-    class El {
-        public string Id, Type, Fill;
-        public int X, Y, W, H, R;
-        public string? Text;
-        public El(string id, string type, int x, int y, int w, int h, string fill, int r=0) {
-            Id=id; Type=type; X=x; Y=y; W=w; H=h; Fill=fill; R=r;
+        if (hubConnection is not null)
+        {
+            await hubConnection.DisposeAsync();
         }
+    }
+
+    record Lay(string Id, string Name);
+
+    class El
+    {
+        public string Id { get; set; }
+        public string Type { get; set; }
+        public string Fill { get; set; }
+        public int X { get; set; }
+        public int Y { get; set; }
+        public int W { get; set; }
+        public int H { get; set; }
+        public int R { get; set; }
+        public string? Text { get; set; }
+
+        public El(string id, string type, int x, int y, int w, int h, string fill, int r = 0)
+        { Id = id; Type = type; X = x; Y = y; W = w; H = h; Fill = fill; R = r; }
+    }
+
+    class SavedContent
+    {
+        public List<Lay> Layers { get; set; } = new();
+        public List<El> Shapes { get; set; } = new();
+    }
+    
+    class OnlineUser
+    {
+        public long UserId { get; set; }
+        public string Username { get; set; } = "";
+        public string SessionId { get; set; } = "";
+        public CursorPos? Cursor { get; set; }
+    }
+    
+    class CursorPos
+    {
+        public double X { get; set; }
+        public double Y { get; set; }
     }
 }
