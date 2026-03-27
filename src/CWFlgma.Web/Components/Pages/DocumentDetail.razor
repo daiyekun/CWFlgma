@@ -370,15 +370,37 @@ else
             {
                 try
                 {
+                    // 如果正在拖拽或调整大小，不更新
+                    if (dragging || resizing)
+                    {
+                        Console.WriteLine("[SignalR] 正在拖拽，跳过更新");
+                        return;
+                    }
+
                     var updated = JsonSerializer.Deserialize<SavedContent>(json);
                     if (updated != null)
                     {
+                        // 保存当前选中的元素 ID
+                        var currentSelId = selId;
+                        
+                        // 更新数据
                         layers = updated.Layers;
                         shapes = updated.Shapes;
+                        
+                        // 恢复选中状态（如果元素还存在）
+                        if (currentSelId != null && shapes.Any(s => s.Id == currentSelId))
+                        {
+                            selId = currentSelId;
+                        }
+                        
+                        Console.WriteLine($"[SignalR] 收到元素更新: {shapes.Count} 个元素");
                         InvokeAsync(StateHasChanged);
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[SignalR] ShapesUpdated 解析错误: {ex.Message}");
+                }
             });
 
             await hubConnection.StartAsync();
@@ -667,8 +689,12 @@ else
     string Style(El s)
     {
         var r = s.Type == "ellipse" ? "50%" : s.R + "px";
-        var bg = s.Type == "text" ? "transparent" : s.Fill;
-        return $"left:{s.X}px;top:{s.Y}px;width:{s.W}px;height:{s.H}px;background:{bg};border-radius:{r}";
+        // 文本类型使用 color，其他类型使用 background
+        if (s.Type == "text")
+        {
+            return $"left:{s.X}px;top:{s.Y}px;width:{s.W}px;height:{s.H}px;color:{s.Fill};border-radius:{r}";
+        }
+        return $"left:{s.X}px;top:{s.Y}px;width:{s.W}px;height:{s.H}px;background:{s.Fill};border-radius:{r}";
     }
     
     string GetUserColor(long userId) => userColors[Math.Abs(userId) % userColors.Length];
