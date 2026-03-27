@@ -2,7 +2,21 @@
 
 ## 项目概述
 
-CWFlgma 是一个类似 Figma 的实时协作设计工具，采用 .NET Aspire 微服务架构构建。支持多人实时编辑、版本历史、权限管理等功能。
+CWFlgma 是一个类似 Figma 的实时协作设计工具，采用 .NET Aspire 微服务架构构建。支持多人实时编辑、版本历史、权限管理等功能。主要用于学习，测试实时同步
+
+### 界面图片
+<img width="2510" height="1159" alt="image" src="https://github.com/user-attachments/assets/acaf8f7d-0246-4158-b335-66210375774e" />
+
+<img width="2553" height="794" alt="image" src="https://github.com/user-attachments/assets/8443baed-dbb1-4d7c-9326-f7ab44d0a5cd" />
+
+<img width="2517" height="692" alt="image" src="https://github.com/user-attachments/assets/66cd83d1-f526-4f70-b815-747b4caa8f76" />
+
+<img width="2498" height="1141" alt="image" src="https://github.com/user-attachments/assets/77839698-ff99-4a94-aa02-d6c082e2bbd2" />
+
+
+<img width="2470" height="913" alt="image" src="https://github.com/user-attachments/assets/215ca72e-96cc-48a3-98d3-131d38d85e30" />
+
+
 
 ## 技术栈
 
